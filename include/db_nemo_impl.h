@@ -16,7 +16,6 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/utility_db.h"
-//#include "rocksdb/utilities/db_ttl.h"
 #include "db/db_impl.h"
 
 #ifdef _WIN32
@@ -29,18 +28,14 @@ namespace rocksdb {
 
 class DBNemoImpl : public DBNemo {
  public:
-  static void SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
+  static void SanitizeOptions(ColumnFamilyOptions* options,
                               Env* env);
 
   explicit DBNemoImpl(DB* db);
 
   virtual ~DBNemoImpl();
 
-  Status CreateColumnFamilyWithTtl(const ColumnFamilyOptions& options,
-                                   const std::string& column_family_name,
-                                   ColumnFamilyHandle** handle,
-                                   int ttl) override;
-
+  using StackableDB::CreateColumnFamily;
   Status CreateColumnFamily(const ColumnFamilyOptions& options,
                             const std::string& column_family_name,
                             ColumnFamilyHandle** handle) override;
@@ -81,22 +76,21 @@ class DBNemoImpl : public DBNemo {
 
   virtual DB* GetBaseDB() override { return db_; }
 
+  virtual Status PutWithKeyTTL(const WriteOptions& options, const Slice& key, const Slice& val, int32_t ttl = 0);
+
+  virtual Status WriteWithKeyTTL(const WriteOptions& opts, WriteBatch* updates, int32_t ttl = 0);
+
+  static Status SanityCheckTimestamp(const Slice& str, Env* env);
+
+  static Status AppendTS(const Slice& val, std::string* val_with_ts, Env* env, int32_t ttl);
+
   static bool IsStale(const Slice& value, int32_t ttl, Env* env);
 
   static Status AppendTS(const Slice& val, std::string* val_with_ts, Env* env);
 
-  static Status SanityCheckTimestamp(const Slice& str);
-
   static Status StripTS(std::string* str);
 
   static const uint32_t kTSLength = sizeof(int32_t);  // size of timestamp
-
-  static const int32_t kMinTimestamp = 1368146402;  // 05/09/2013:5:40PM GMT-8
-
-  static const int32_t kMaxTimestamp = 2147483647;  // 01/18/2038:7:14PM GMT-8
-
- private:
-  int32_t ttl_;
 };
 
 class NemoIterator : public Iterator {
@@ -129,7 +123,6 @@ class NemoIterator : public Iterator {
 
   Slice value() const override {
     // TODO: handle timestamp corruption like in general iterator semantics
-    assert(DBNemoImpl::SanityCheckTimestamp(iter_->value()).ok());
     Slice trimmed_value = iter_->value();
     trimmed_value.size_ -= DBNemoImpl::kTSLength;
     return trimmed_value;
@@ -144,11 +137,10 @@ class NemoIterator : public Iterator {
 class NemoCompactionFilter : public CompactionFilter {
  public:
   NemoCompactionFilter(
-      int32_t ttl, Env* env, const CompactionFilter* user_comp_filter,
+      Env* env, const CompactionFilter* user_comp_filter,
       std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory =
           nullptr)
-      : ttl_(ttl),
-        env_(env),
+      : env_(env),
         user_comp_filter_(user_comp_filter),
         user_comp_filter_from_factory_(
             std::move(user_comp_filter_from_factory)) {
@@ -162,7 +154,7 @@ class NemoCompactionFilter : public CompactionFilter {
   virtual bool Filter(int level, const Slice& key, const Slice& old_val,
                       std::string* new_val, bool* value_changed) const
       override {
-    if (DBNemoImpl::IsStale(old_val, ttl_, env_)) {
+    if (DBNemoImpl::IsStale(old_val, 5, env_)) {
       return true;
     }
     if (user_comp_filter_ == nullptr) {
@@ -186,7 +178,6 @@ class NemoCompactionFilter : public CompactionFilter {
   virtual const char* Name() const override { return "Delete By TTL"; }
 
  private:
-  int32_t ttl_;
   Env* env_;
   const CompactionFilter* user_comp_filter_;
   std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory_;
@@ -195,9 +186,9 @@ class NemoCompactionFilter : public CompactionFilter {
 class NemoCompactionFilterFactory : public CompactionFilterFactory {
  public:
   NemoCompactionFilterFactory(
-      int32_t ttl, Env* env,
+      Env* env,
       std::shared_ptr<CompactionFilterFactory> comp_filter_factory)
-      : ttl_(ttl), env_(env), user_comp_filter_factory_(comp_filter_factory) {}
+      : env_(env), user_comp_filter_factory_(comp_filter_factory) {}
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
@@ -209,7 +200,7 @@ class NemoCompactionFilterFactory : public CompactionFilterFactory {
     }
 
     return std::unique_ptr<NemoCompactionFilter>(new NemoCompactionFilter(
-        ttl_, env_, nullptr, std::move(user_comp_filter_from_factory)));
+        env_, nullptr, std::move(user_comp_filter_from_factory)));
   }
 
   virtual const char* Name() const override {
@@ -217,7 +208,6 @@ class NemoCompactionFilterFactory : public CompactionFilterFactory {
   }
 
  private:
-  int32_t ttl_;
   Env* env_;
   std::shared_ptr<CompactionFilterFactory> user_comp_filter_factory_;
 };

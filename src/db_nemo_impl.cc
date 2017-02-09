@@ -15,15 +15,15 @@
 
 namespace rocksdb {
 
-void DBNemoImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
+void DBNemoImpl::SanitizeOptions(ColumnFamilyOptions* options,
                                     Env* env) {
   if (options->compaction_filter) {
     options->compaction_filter =
-        new NemoCompactionFilter(ttl, env, options->compaction_filter);
+        new NemoCompactionFilter(env, options->compaction_filter);
   } else {
     options->compaction_filter_factory =
         std::shared_ptr<CompactionFilterFactory>(new NemoCompactionFilterFactory(
-            ttl, env, options->compaction_filter_factory));
+         env, options->compaction_filter_factory));
   }
 
   if (options->merge_operator) {
@@ -41,20 +41,8 @@ DBNemoImpl::~DBNemoImpl() {
   delete GetOptions().compaction_filter;
 }
 
-Status UtilityDB::OpenTtlDB(const Options& options, const std::string& dbname,
-                            StackableDB** dbptr, int32_t ttl, bool read_only) {
-  DBNemo* db;
-  Status s = DBNemo::Open(options, dbname, &db, ttl, read_only);
-  if (s.ok()) {
-    *dbptr = db;
-  } else {
-    *dbptr = nullptr;
-  }
-  return s;
-}
-
 Status DBNemo::Open(const Options& options, const std::string& dbname,
-                       DBNemo** dbptr, int32_t ttl, bool read_only) {
+                       DBNemo** dbptr, bool read_only) {
 
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
@@ -63,7 +51,7 @@ Status DBNemo::Open(const Options& options, const std::string& dbname,
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DBNemo::Open(db_options, dbname, column_families, &handles,
-                             dbptr, {ttl}, read_only);
+                             dbptr, read_only);
   if (s.ok()) {
     assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to
@@ -77,18 +65,13 @@ Status DBNemo::Open(
     const DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DBNemo** dbptr,
-    std::vector<int32_t> ttls, bool read_only) {
-
-  if (ttls.size() != column_families.size()) {
-    return Status::InvalidArgument(
-        "ttls size has to be the same as number of column families");
-  }
+    bool read_only) {
 
   std::vector<ColumnFamilyDescriptor> column_families_sanitized =
       column_families;
   for (size_t i = 0; i < column_families_sanitized.size(); ++i) {
     DBNemoImpl::SanitizeOptions(
-        ttls[i], &column_families_sanitized[i].options,
+        &column_families_sanitized[i].options,
         db_options.env == nullptr ? Env::Default() : db_options.env);
   }
   DB* db;
@@ -108,24 +91,18 @@ Status DBNemo::Open(
   return st;
 }
 
-Status DBNemoImpl::CreateColumnFamilyWithTtl(
-    const ColumnFamilyOptions& options, const std::string& column_family_name,
-    ColumnFamilyHandle** handle, int ttl) {
+Status DBNemoImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
+                                         const std::string& column_family_name,
+                                         ColumnFamilyHandle** handle) {
   ColumnFamilyOptions sanitized_options = options;
-  DBNemoImpl::SanitizeOptions(ttl, &sanitized_options, GetEnv());
+  DBNemoImpl::SanitizeOptions(&sanitized_options, GetEnv());
 
   return DBNemo::CreateColumnFamily(sanitized_options, column_family_name,
                                        handle);
 }
 
-Status DBNemoImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
-                                         const std::string& column_family_name,
-                                         ColumnFamilyHandle** handle) {
-  return CreateColumnFamilyWithTtl(options, column_family_name, handle, 0);
-}
-
 // Appends the current timestamp to the string.
-// Returns false if could not get the current_time, true if append succeeds
+// Returns corruption if could not get the current_time, ok if append succeeds
 Status DBNemoImpl::AppendTS(const Slice& val, std::string* val_with_ts,
                                Env* env) {
   val_with_ts->reserve(kTSLength + val.size());
@@ -141,17 +118,21 @@ Status DBNemoImpl::AppendTS(const Slice& val, std::string* val_with_ts,
   return st;
 }
 
-// Returns corruption if the length of the string is lesser than timestamp, or
-// timestamp refers to a time lesser than ttl-feature release time
-Status DBNemoImpl::SanityCheckTimestamp(const Slice& str) {
+// Returns corruption if the length of the string is lesser than timestamp
+// Returns NotFound if the encoded timestamp is lesser than current time
+Status DBNemoImpl::SanityCheckTimestamp(const Slice& str, Env* env) {
   if (str.size() < kTSLength) {
     return Status::Corruption("Error: value's length less than timestamp's\n");
   }
-  // Checks that TS is not lesser than kMinTimestamp
-  // Gaurds against corruption & normal database opened incorrectly in ttl mode
+
   int32_t timestamp_value = DecodeFixed32(str.data() + str.size() - kTSLength);
-  if (timestamp_value < kMinTimestamp) {
-    return Status::Corruption("Error: Timestamp < ttl feature release time!\n");
+  int64_t curtime;
+//  if (!(db_->GetEnv()->GetCurrentTime(&curtime)).ok()) {
+  if (!(env->GetCurrentTime(&curtime)).ok()) {
+    return Status::OK();  // Treat the data as fresh if could not get current time
+  }
+  if (timestamp_value != 0 && timestamp_value < curtime) {
+    return Status::NotFound("Is stale\n");
   }
   return Status::OK();
 }
@@ -186,7 +167,7 @@ Status DBNemoImpl::Put(const WriteOptions& options,
                           const Slice& val) {
   WriteBatch batch;
   batch.Put(column_family, key, val);
-  return Write(options, &batch);
+  return WriteWithKeyTTL(options, &batch, 0);
 }
 
 Status DBNemoImpl::Get(const ReadOptions& options,
@@ -196,12 +177,9 @@ Status DBNemoImpl::Get(const ReadOptions& options,
   if (!st.ok()) {
     return st;
   }
-  st = SanityCheckTimestamp(*value);
+  st = SanityCheckTimestamp(*value, db_->GetEnv());
   if (!st.ok()) {
     return st;
-  }
-  if (IsStale(*value, 5, db_->GetEnv())) {
-    return Status::NotFound();
   }
   return StripTS(value);
 }
@@ -215,7 +193,7 @@ std::vector<Status> DBNemoImpl::MultiGet(
     if (!statuses[i].ok()) {
       continue;
     }
-    statuses[i] = SanityCheckTimestamp((*values)[i]);
+    statuses[i] = SanityCheckTimestamp((*values)[i], db_->GetEnv());
     if (!statuses[i].ok()) {
       continue;
     }
@@ -230,7 +208,7 @@ bool DBNemoImpl::KeyMayExist(const ReadOptions& options,
                                 bool* value_found) {
   bool ret = db_->KeyMayExist(options, column_family, key, value, value_found);
   if (ret && value != nullptr && value_found != nullptr && *value_found) {
-    if (!SanityCheckTimestamp(*value).ok() || !StripTS(value).ok()) {
+    if (!SanityCheckTimestamp(*value, db_->GetEnv()).ok() || !StripTS(value).ok()) {
       return false;
     }
   }
@@ -263,27 +241,11 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       }
       return Status::OK();
     }
-    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                           const Slice& value) override {
-      std::string value_with_ts;
-      Status st = AppendTS(value, &value_with_ts, env_);
-      if (!st.ok()) {
-        batch_rewrite_status = st;
-      } else {
-        WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
-                                  value_with_ts);
-      }
-      return Status::OK();
-    }
     virtual Status DeleteCF(uint32_t column_family_id,
                             const Slice& key) override {
       WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
       return Status::OK();
     }
-    virtual void LogData(const Slice& blob) override {
-      updates_ttl.PutLogData(blob);
-    }
-
    private:
     Env* env_;
   };
@@ -301,5 +263,72 @@ Iterator* DBNemoImpl::NewIterator(const ReadOptions& opts,
   return new NemoIterator(db_->NewIterator(opts, column_family));
 }
 
+Status DBNemoImpl::PutWithKeyTTL(const WriteOptions& options, const Slice& key, const Slice& val, int32_t ttl) {
+  WriteBatch batch;
+  batch.Put(db_->DefaultColumnFamily(), key, val);
+  return WriteWithKeyTTL(options, &batch, ttl);
+}
+
+Status DBNemoImpl::WriteWithKeyTTL(const WriteOptions& opts, WriteBatch* updates, int32_t ttl) {
+  class Handler : public WriteBatch::Handler {
+   public:
+    DBImpl* db_;
+    WriteBatch updates_ttl;
+    Status batch_rewrite_status;
+
+    explicit Handler(Env* env, int32_t ttl, DB* db)
+        : db_(reinterpret_cast<DBImpl*>(db)), env_(env), ttl_(ttl) {}
+
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) {
+      std::string value_with_ts;
+
+      Status st = AppendTS(value, &value_with_ts, env_, ttl_);
+      if (!st.ok()) {
+        batch_rewrite_status = st;
+      } else {
+        WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
+                                value_with_ts);
+      }
+      return Status::OK();
+    }
+    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+      WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
+      return Status::OK();
+    }
+
+   private:
+    Env* env_;
+    int32_t ttl_;
+  };
+  //@ADD assign the db pointer
+  Handler handler(GetEnv(), ttl, db_);
+
+  updates->Iterate(&handler);
+  if (!handler.batch_rewrite_status.ok()) {
+    return handler.batch_rewrite_status;
+  } else {
+    return db_->Write(opts, &(handler.updates_ttl));
+  }
+}
+
+Status DBNemoImpl::AppendTS(const Slice& val, std::string* val_with_ts,
+                               Env* env, int32_t ttl) {
+  val_with_ts->reserve(kTSLength + val.size());
+  char ts_string[kTSLength];
+  if (ttl <= 0) {
+    EncodeFixed32(ts_string, 0);
+  } else {
+    int64_t curtime;
+    Status st = env->GetCurrentTime(&curtime);
+    if (!st.ok()) {
+      return st;
+    }
+    EncodeFixed32(ts_string, (int32_t)(curtime+ttl-1));
+  }
+  val_with_ts->append(val.data(), val.size());
+  val_with_ts->append(ts_string, kTSLength);
+  return Status::OK();
+}
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

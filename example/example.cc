@@ -8,7 +8,8 @@ int main() {
   rocksdb::Options options;
   options.create_if_missing = true;
   rocksdb::Status s = rocksdb::DBNemo::Open(options, "./db", &db);
-  s = db->Put(rocksdb::WriteOptions(), "key", "value");
+  s = db->PutWithKeyTTL(rocksdb::WriteOptions(), "key", "value", 3);
+//  s = db->Put(rocksdb::WriteOptions(), "key", "value");
   if (!s.ok()) {
     std::cout << "Put Error: " << s.ToString() << std::endl;
   }
@@ -22,7 +23,7 @@ int main() {
     } else if (s.IsNotFound()) {
       std::cout << "Get Nothing" << std::endl;
     } else {
-      std::cout << "Get Error" << std::endl;
+      std::cout << "Get Error: " << s.ToString() << std::endl;
     }
 //    std::this_thread::sleep_for(std::chrono::duration<int, std::ratio<1, 1> >(1));
     std::this_thread::sleep_for(std::chrono::seconds(1));
