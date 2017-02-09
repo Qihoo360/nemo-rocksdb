@@ -201,19 +201,18 @@ class NemoCompactionFilter : public CompactionFilter {
   virtual bool Filter(int level, const Slice& key, const Slice& old_val,
                       std::string* new_val, bool* value_changed) const
       override {
-    if (DBNemoImpl::IsStale(old_val, 5, env_)) {
-      return true;
-    }
-    if (user_comp_filter_ == nullptr) {
-      return false;
-    }
     assert(old_val.size() >= DBNemoImpl::kTSLength);
     Slice old_val_without_ts(old_val.data(),
                              old_val.size() - DBNemoImpl::kTSLength);
-    if (user_comp_filter_->Filter(level, key, old_val_without_ts, new_val,
-                                  value_changed)) {
+    if (user_comp_filter_ != nullptr && user_comp_filter_->Filter(level,
+          key, old_val_without_ts, new_val, value_changed)) {
       return true;
     }
+
+    if (DBNemoImpl::SanityCheckTimestamp(old_val, env_).IsNotFound()) {
+      return true;
+    }
+
     if (*value_changed) {
       new_val->append(
           old_val.data() + old_val.size() - DBNemoImpl::kTSLength,

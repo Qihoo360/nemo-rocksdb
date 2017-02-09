@@ -12,6 +12,7 @@ int main() {
 /*
  * 1. Test PutWithKeyTTL
  *
+  {
   s = db->PutWithKeyTTL(rocksdb::WriteOptions(), "key", "value", 3);
   if (!s.ok()) {
     std::cout << "Put Error: " << s.ToString() << std::endl;
@@ -30,11 +31,13 @@ int main() {
 //    std::this_thread::sleep_for(std::chrono::duration<int, std::ratio<1, 1> >(1));
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
+  }
  */
 
 /*
  * 2. Test Iterator
- */
+ *
+  {
   rocksdb::WriteBatch batch;
   batch.Put("key1", "value1");
   batch.Put("key2", "value2");
@@ -66,6 +69,69 @@ int main() {
     }
     std::cout << "---------------------------" << std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+  }
+ *
+ */
+
+/*
+ * 3. Test CompactFilter
+ */
+  {
+  s = db->Put(rocksdb::WriteOptions(), "persistent_key", "KernelMaker");
+  if (!s.ok()) {
+    std::cout << "Put Error: " << s.ToString() << std::endl;
+  }
+
+  for (int i = 0; i < 10; i++) {
+    s = db->PutWithKeyTTL(rocksdb::WriteOptions(), std::to_string(i)+"_key", "value", 3);
+    if (!s.ok()) {
+      std::cout << "Put Error: " << s.ToString() << std::endl;
+    }
+  }
+  for (int i = 0; i < 10; i++) {
+    s = db->PutWithKeyTTL(rocksdb::WriteOptions(), std::to_string(i+10)+"_key", "value", 10);
+    if (!s.ok()) {
+      std::cout << "Put Error: " << s.ToString() << std::endl;
+    }
+  }
+  std::string value;
+  for (int i = 0; i < 20; i++) {
+    s = db->Get(rocksdb::ReadOptions(), std::to_string(i)+"_key", &value);
+    if (s.ok()) {
+      std::cout << "Get key: " << std::to_string(i)+"_key" << " value: "<< value << std::endl;
+    } else if (s.IsNotFound()) {
+      std::cout << "Get Nothing" << std::endl;
+    } else {
+      std::cout << "Get Error: " << s.ToString() << std::endl;
+    }
+  }
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+  s = db->CompactRange(rocksdb::CompactRangeOptions(), NULL, NULL);
+  std::cout << "CompactRange return: " << s.ToString() << std::endl;
+  for (int i = 0; i < 20; i++) {
+    s = db->Get(rocksdb::ReadOptions(), std::to_string(i)+"_key", &value);
+    if (s.ok()) {
+      std::cout << "Get key: " << std::to_string(i)+"_key" << " value: "<< value << std::endl;
+    } else if (s.IsNotFound()) {
+      std::cout << "Get Nothing, key: " << std::to_string(i)+"_key" << std::endl;
+    } else {
+      std::cout << "Get Error: " << s.ToString() << std::endl;
+    }
+  }
+  std::this_thread::sleep_for(std::chrono::seconds(6));
+  s = db->CompactRange(rocksdb::CompactRangeOptions(), NULL, NULL);
+  std::cout << "CompactRange return: " << s.ToString() << std::endl;
+  for (int i = 0; i < 20; i++) {
+    s = db->Get(rocksdb::ReadOptions(), std::to_string(i)+"_key", &value);
+    if (s.ok()) {
+      std::cout << "Get key: " << std::to_string(i)+"_key" << " value: "<< value << std::endl;
+    } else if (s.IsNotFound()) {
+      std::cout << "Get Nothing, key: " << std::to_string(i)+"_key" << std::endl;
+    } else {
+      std::cout << "Get Error: " << s.ToString() << std::endl;
+    }
+  }
   }
 
   delete db;
