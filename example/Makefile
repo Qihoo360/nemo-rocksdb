@@ -2,7 +2,6 @@ CXX = g++
 
 CXXFLAGS = -Wall -W -Wno-unused-parameter -g -O2 -D__STDC_FORMAT_MACROS -fPIC -std=c++11 -DROCKSDB_PLATFORM_POSIX -DOS_LINUX -fno-builtin-memcmp -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2
 
-OBJECT = example
 SRC_DIR = .
 OUTPUT = .
 
@@ -21,24 +20,15 @@ INCLUDE_PATH = -I../output/include/ \
 
 .PHONY: all clean
 
-
-BASE_OBJS := $(wildcard $(SRC_DIR)/*.cc)
-BASE_OBJS += $(wildcard $(SRC_DIR)/*.c)
-BASE_OBJS += $(wildcard $(SRC_DIR)/*.cpp)
-OBJS = $(patsubst %.cc,%.o,$(BASE_OBJS))
-
-all: $(OBJECT)
+all: example benchmark
 	@echo "Success, go, go, go..."
 
-$(OBJECT): $(OBJS)
+example: example.cc
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(INCLUDE_PATH) $(LIB_PATH) $(LIBS)
 
-$(OBJS): %.o : %.cc
-	$(CXX) $(CXXFLAGS) -c $< -o $@ $(INCLUDE_PATH) 
-
-$(TOBJS): %.o : %.cc
-	$(CXX) $(CXXFLAGS) -c $< -o $@ $(INCLUDE_PATH) 
+benchmark: benchmark.cc
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(INCLUDE_PATH) $(LIB_PATH) $(LIBS)
 
 clean: 
 	rm -rf ./*.o
-	rm -rf $(OBJECT)
+	rm -rf ./example ./benchmark
