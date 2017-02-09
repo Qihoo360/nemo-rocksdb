@@ -96,23 +96,69 @@ class DBNemoImpl : public DBNemo {
 class NemoIterator : public Iterator {
 
  public:
-  explicit NemoIterator(Iterator* iter) : iter_(iter) { assert(iter_); }
+  explicit NemoIterator(Iterator* iter, Env* env) : iter_(iter), env_(env) { assert(iter_); }
 
   ~NemoIterator() { delete iter_; }
 
   bool Valid() const override { return iter_->Valid(); }
 
-  void SeekToFirst() override { iter_->SeekToFirst(); }
+  void SeekToFirst() override {
+    iter_->SeekToFirst();
+    while (iter_->Valid()) {
+      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+        break;
+      }
+      iter_->Next();
+    }
+  }
 
-  void SeekToLast() override { iter_->SeekToLast(); }
+  void SeekToLast() override {
+    iter_->SeekToLast();
+    while (iter_->Valid()) {
+      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+        break;
+      }
+      iter_->Prev();
+    }
+  }
 
-  void Seek(const Slice& target) override { iter_->Seek(target); }
+  void Seek(const Slice& target) override {
+    iter_->Seek(target);
+    while (iter_->Valid()) {
+      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+        break;
+      }
+      iter_->Next();
+    }
+  }
 
-  void SeekForPrev(const Slice& target) override { iter_->SeekForPrev(target); }
+  void SeekForPrev(const Slice& target) override {
+    iter_->SeekForPrev(target);
+    while (iter_->Valid()) {
+      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+        break;
+      }
+      iter_->Prev();
+    }
+  }
 
-  void Next() override { iter_->Next(); }
+  void Next() override {
+    while (iter_->Valid()) {
+      iter_->Next();
+      if (iter_->Valid() && DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+        break;
+      }
+    }
+  }
 
-  void Prev() override { iter_->Prev(); }
+  void Prev() override {
+    while (iter_->Valid()) {
+      iter_->Prev();
+      if (iter_->Valid() && DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+        break;
+      }
+    }
+  }
 
   Slice key() const override { return iter_->key(); }
 
@@ -132,6 +178,7 @@ class NemoIterator : public Iterator {
 
  private:
   Iterator* iter_;
+  Env* env_;
 };
 
 class NemoCompactionFilter : public CompactionFilter {

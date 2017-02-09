@@ -260,7 +260,7 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
 
 Iterator* DBNemoImpl::NewIterator(const ReadOptions& opts,
                                      ColumnFamilyHandle* column_family) {
-  return new NemoIterator(db_->NewIterator(opts, column_family));
+  return new NemoIterator(db_->NewIterator(opts, column_family), db_->GetEnv());
 }
 
 Status DBNemoImpl::PutWithKeyTTL(const WriteOptions& options, const Slice& key, const Slice& val, int32_t ttl) {
