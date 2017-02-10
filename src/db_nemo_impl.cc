@@ -101,23 +101,6 @@ Status DBNemoImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
                                        handle);
 }
 
-// Appends the current timestamp to the string.
-// Returns corruption if could not get the current_time, ok if append succeeds
-Status DBNemoImpl::AppendTS(const Slice& val, std::string* val_with_ts,
-                               Env* env) {
-  val_with_ts->reserve(kTSLength + val.size());
-  char ts_string[kTSLength];
-  int64_t curtime;
-  Status st = env->GetCurrentTime(&curtime);
-  if (!st.ok()) {
-    return st;
-  }
-  EncodeFixed32(ts_string, (int32_t)curtime);
-  val_with_ts->append(val.data(), val.size());
-  val_with_ts->append(ts_string, kTSLength);
-  return st;
-}
-
 // Returns corruption if the length of the string is lesser than timestamp
 // Returns NotFound if the encoded timestamp is lesser than current time
 Status DBNemoImpl::SanityCheckTimestamp(const Slice& str, Env* env) {
@@ -165,9 +148,13 @@ Status DBNemoImpl::StripTS(std::string* str) {
 Status DBNemoImpl::Put(const WriteOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
                           const Slice& val) {
+  return Put(options, column_family, key, val, 0);
+}
+
+Status DBNemoImpl::Put(const WriteOptions& options, ColumnFamilyHandle* column_family, const Slice& key, const Slice& val, int32_t ttl) {
   WriteBatch batch;
   batch.Put(column_family, key, val);
-  return WriteWithKeyTTL(options, &batch, 0);
+  return Write(options, &batch, ttl);
 }
 
 Status DBNemoImpl::Get(const ReadOptions& options,
@@ -224,52 +211,10 @@ Status DBNemoImpl::Merge(const WriteOptions& options,
 }
 
 Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
-  class Handler : public WriteBatch::Handler {
-   public:
-    explicit Handler(Env* env) : env_(env) {}
-    WriteBatch updates_ttl;
-    Status batch_rewrite_status;
-    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) override {
-      std::string value_with_ts;
-      Status st = AppendTS(value, &value_with_ts, env_);
-      if (!st.ok()) {
-        batch_rewrite_status = st;
-      } else {
-        WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
-                                value_with_ts);
-      }
-      return Status::OK();
-    }
-    virtual Status DeleteCF(uint32_t column_family_id,
-                            const Slice& key) override {
-      WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
-      return Status::OK();
-    }
-   private:
-    Env* env_;
-  };
-  Handler handler(GetEnv());
-  updates->Iterate(&handler);
-  if (!handler.batch_rewrite_status.ok()) {
-    return handler.batch_rewrite_status;
-  } else {
-    return db_->Write(opts, &(handler.updates_ttl));
-  }
+  return Write(opts, updates, 0);
 }
 
-Iterator* DBNemoImpl::NewIterator(const ReadOptions& opts,
-                                     ColumnFamilyHandle* column_family) {
-  return new NemoIterator(db_->NewIterator(opts, column_family), db_->GetEnv());
-}
-
-Status DBNemoImpl::PutWithKeyTTL(const WriteOptions& options, const Slice& key, const Slice& val, int32_t ttl) {
-  WriteBatch batch;
-  batch.Put(db_->DefaultColumnFamily(), key, val);
-  return WriteWithKeyTTL(options, &batch, ttl);
-}
-
-Status DBNemoImpl::WriteWithKeyTTL(const WriteOptions& opts, WriteBatch* updates, int32_t ttl) {
+Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t ttl) {
   class Handler : public WriteBatch::Handler {
    public:
     DBImpl* db_;
@@ -292,9 +237,24 @@ Status DBNemoImpl::WriteWithKeyTTL(const WriteOptions& opts, WriteBatch* updates
       }
       return Status::OK();
     }
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                           const Slice& value) override {
+      std::string value_with_ts;
+      Status st = AppendTS(value, &value_with_ts, env_, 0);
+      if (!st.ok()) {
+        batch_rewrite_status = st;
+      } else {
+        WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
+                                  value_with_ts);
+      }
+      return Status::OK();
+    }
     virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
       WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
       return Status::OK();
+    }
+    virtual void LogData(const Slice& blob) override {
+      updates_ttl.PutLogData(blob);
     }
 
    private:
@@ -310,6 +270,11 @@ Status DBNemoImpl::WriteWithKeyTTL(const WriteOptions& opts, WriteBatch* updates
   } else {
     return db_->Write(opts, &(handler.updates_ttl));
   }
+}
+
+Iterator* DBNemoImpl::NewIterator(const ReadOptions& opts,
+                                     ColumnFamilyHandle* column_family) {
+  return new NemoIterator(db_->NewIterator(opts, column_family), db_->GetEnv());
 }
 
 Status DBNemoImpl::AppendTS(const Slice& val, std::string* val_with_ts,

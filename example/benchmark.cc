@@ -18,9 +18,9 @@ void Persistent(rocksdb::DBNemo* db, int start, int num) {
 void Expire(rocksdb::DBNemo* db, int start, int num) {
   rocksdb::Status s;
   for (int i = start; i < start + num; i++) {
-    s = db->PutWithKeyTTL(rocksdb::WriteOptions(), std::to_string(i)+"_expire_key", "HiThereIAmAValue", i%1000);
+    s = db->Put(rocksdb::WriteOptions(), std::to_string(i)+"_expire_key", "HiThereIAmAValue", i%1000);
     if (!s.ok()) {
-      std::cout << "Thread " << std::this_thread::get_id() << " PutWithKeyTTL Error: " << s.ToString() << std::endl;
+      std::cout << "Thread " << std::this_thread::get_id() << " Put Error: " << s.ToString() << std::endl;
     }
   }
 }

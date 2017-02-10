@@ -10,16 +10,17 @@ int main() {
   rocksdb::Status s = rocksdb::DBNemo::Open(options, "./db", &db);
 
 /*
- * 1. Test PutWithKeyTTL
- *
+ * 1. Test Put
+ */
   {
-  s = db->PutWithKeyTTL(rocksdb::WriteOptions(), "key", "value", 3);
+  s = db->Put(rocksdb::WriteOptions(), "key", "value", 3);
   if (!s.ok()) {
     std::cout << "Put Error: " << s.ToString() << std::endl;
   }
 
   std::string value;
-  while (true) {
+  int times = 5;
+  while (times--) {
     s = db->Get(rocksdb::ReadOptions(), "key", &value);
     if (s.ok()) {
       std::cout << "Get value: " << value << std::endl;
@@ -32,7 +33,6 @@ int main() {
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
   }
- */
 
 /*
  * 2. Test Iterator
@@ -42,15 +42,15 @@ int main() {
   batch.Put("key1", "value1");
   batch.Put("key2", "value2");
   batch.Put("key3", "value3");
-  s = db->WriteWithKeyTTL(rocksdb::WriteOptions(), &batch, 3);
+  s = db->Write(rocksdb::WriteOptions(), &batch, 3);
   if (!s.ok()) {
     std::cout << "Write Error: " << s.ToString() << std::endl;
   }
-  s = db->PutWithKeyTTL(rocksdb::WriteOptions(), "key4", "value4", 4);
+  s = db->Put(rocksdb::WriteOptions(), "key4", "value4", 4);
   if (!s.ok()) {
     std::cout << "Put Error: " << s.ToString() << std::endl;
   }
-  s = db->PutWithKeyTTL(rocksdb::WriteOptions(), "key5", "value5", 5);
+  s = db->Put(rocksdb::WriteOptions(), "key5", "value5", 5);
   if (!s.ok()) {
     std::cout << "Put Error: " << s.ToString() << std::endl;
   }
@@ -76,7 +76,7 @@ int main() {
 
 /*
  * 3. Test CompactFilter
- */
+ *
   {
   s = db->Put(rocksdb::WriteOptions(), "persistent_key", "KernelMaker");
   if (!s.ok()) {
@@ -84,13 +84,13 @@ int main() {
   }
 
   for (int i = 0; i < 10; i++) {
-    s = db->PutWithKeyTTL(rocksdb::WriteOptions(), std::to_string(i)+"_key", "value", 3);
+    s = db->Put(rocksdb::WriteOptions(), std::to_string(i)+"_key", "value", 3);
     if (!s.ok()) {
       std::cout << "Put Error: " << s.ToString() << std::endl;
     }
   }
   for (int i = 0; i < 10; i++) {
-    s = db->PutWithKeyTTL(rocksdb::WriteOptions(), std::to_string(i+10)+"_key", "value", 10);
+    s = db->Put(rocksdb::WriteOptions(), std::to_string(i+10)+"_key", "value", 10);
     if (!s.ok()) {
       std::cout << "Put Error: " << s.ToString() << std::endl;
     }
@@ -133,6 +133,8 @@ int main() {
     }
   }
   }
+ *
+ */
 
   delete db;
 }

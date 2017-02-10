@@ -40,10 +40,16 @@ class DBNemoImpl : public DBNemo {
                             const std::string& column_family_name,
                             ColumnFamilyHandle** handle) override;
 
-  using StackableDB::Put;
+//  using StackableDB::Put;
+  using DBNemo::Put;
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& val) override;
+
+  virtual Status Put(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family,
+                     const Slice& key, const Slice& val,
+                     int32_t ttl) override;
 
   using StackableDB::Get;
   virtual Status Get(const ReadOptions& options,
@@ -68,7 +74,9 @@ class DBNemoImpl : public DBNemo {
                        ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value) override;
 
+  using DBNemo::Write;
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
+  virtual Status Write(const WriteOptions& opts, WriteBatch* updates, int32_t ttl);
 
   using StackableDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& opts,
@@ -76,17 +84,11 @@ class DBNemoImpl : public DBNemo {
 
   virtual DB* GetBaseDB() override { return db_; }
 
-  virtual Status PutWithKeyTTL(const WriteOptions& options, const Slice& key, const Slice& val, int32_t ttl = 0);
-
-  virtual Status WriteWithKeyTTL(const WriteOptions& opts, WriteBatch* updates, int32_t ttl = 0);
-
   static Status SanityCheckTimestamp(const Slice& str, Env* env);
 
   static Status AppendTS(const Slice& val, std::string* val_with_ts, Env* env, int32_t ttl);
 
   static bool IsStale(const Slice& value, int32_t ttl, Env* env);
-
-  static Status AppendTS(const Slice& val, std::string* val_with_ts, Env* env);
 
   static Status StripTS(std::string* str);
 
@@ -318,19 +320,11 @@ class NemoMergeOperator : public MergeOperator {
       merge_out->existing_operand = Slice(nullptr, 0);
     }
 
-    // Augment the *new_value with the ttl time-stamp
-    int64_t curtime;
-    if (!env_->GetCurrentTime(&curtime).ok()) {
-      Log(InfoLogLevel::ERROR_LEVEL, merge_in.logger,
-          "Error: Could not get current time to be attached internally "
-          "to the new value.");
-      return false;
-    } else {
-      char ts_string[ts_len];
-      EncodeFixed32(ts_string, (int32_t)curtime);
-      merge_out->new_value.append(ts_string, ts_len);
-      return true;
-    }
+    // Augment the *new_value with the ttl time-stamp 0
+    char ts_string[ts_len];
+    EncodeFixed32(ts_string, (int32_t)0);
+    merge_out->new_value.append(ts_string, ts_len);
+    return true;
   }
 
   virtual bool PartialMergeMulti(const Slice& key,
@@ -358,19 +352,11 @@ class NemoMergeOperator : public MergeOperator {
       return false;
     }
 
-    // Augment the *new_value with the ttl time-stamp
-    int64_t curtime;
-    if (!env_->GetCurrentTime(&curtime).ok()) {
-      Log(InfoLogLevel::ERROR_LEVEL, logger,
-          "Error: Could not get current time to be attached internally "
-          "to the new value.");
-      return false;
-    } else {
-      char ts_string[ts_len];
-      EncodeFixed32(ts_string, (int32_t)curtime);
-      new_value->append(ts_string, ts_len);
-      return true;
-    }
+    // Augment the *new_value with the ttl time-stamp 0
+    char ts_string[ts_len];
+    EncodeFixed32(ts_string, (int32_t)0);
+    new_value->append(ts_string, ts_len);
+    return true;
   }
 
   virtual const char* Name() const override { return "Merge By TTL"; }
