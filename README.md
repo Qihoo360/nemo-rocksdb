@@ -4,7 +4,7 @@ nemo-rocksdb is compatible with rocksdb, and I added TTL feature on it, supporti
 
 # Features
 ## TTL
-  DBNemo is derived from rocksdb::StackableDB, so it is compatible with rocksdb, you can use the following methods as usual
+  DBNemo is derived from rocksdb::StackableDB, so it is compatible with rocksdb, you can use all the methods of rocksdb as usual, such as
   
 
 |   Method    |
@@ -13,19 +13,26 @@ nemo-rocksdb is compatible with rocksdb, and I added TTL feature on it, supporti
 |DBNemo::Write()       |
 |DBNemo::Get()         |
 |DBNemo::Delete()      |
+|DBNemo::Merge()       |
 |DBNemo::NewIterator() |
 |DBNemo::CompactRange()|
 
+**How to expire key?**
 
-Besides, DBNemo adds two new methods:
- 
-* Status **DBNemo::PutWithKeyTTL**(const WriteOptions& options, const Slice& key, const Slice& val, **int32_t ttl** = 0)
+just use **Put** or **Write** as usual, and add one more parameter(**int32_t ttl**) at last
 
-* Status **DBNemo::WriteWithKeyTTL**(const WriteOptions& opts, WriteBatch\* updates, **int32_t ttl** = 0)
+```cpp
+db->Put(rocksdb::WriteOptions(), "persistent_key", "value"); // never to be expired
+db->Put(rocksdb::WriteOptions(), "expire_key", "value", 6); // will be expired after 6s
 
-you can use these two methods to insert a record into rocksdb with any specified TTL (ttl <=0 means never to be expired), you can also create NemoIterator to iterate db, it will ignore the expired records automaticly.
+rocksdb::WriteBatch batch;
+batch.Put("expire_key", "value"); // never to be expired
+db->Write(rocksdb::WriteOptions(), &batch, 6); // will be expired after 6s
+```
 
-DBNemo uses NemoCompactionFilterFactory and NemoCompactionFilter to drop the expired records in compaction process by default, you can also add your own CompactionFilterFactory or CompactionFilter in rocksdb::Options, that's ok!
+you can also create iterator by **NewIterator()** to iterate db, it will ignore the expired records automaticly.
+
+DBNemo uses specified inner CompactionFilter to drop the expired records in compaction process by default, you can add your own CompactionFilterFactory or CompactionFilter in rocksdb::Options, that's ok!
 
 # Usage
 ```cpp
@@ -49,7 +56,7 @@ int main() {
   /*
    * 2. Insert a record with 6s TTL
    */
-  s = db->PutWithKeyTTL(rocksdb::WriteOptions(), "expire_key", "value", 6);
+  s = db->Put(rocksdb::WriteOptions(), "expire_key", "value", 6);
   if (!s.ok()) {
     std::cout << "Put Error: " << s.ToString() << std::endl;
   }
@@ -61,7 +68,7 @@ int main() {
   batch.Put("expire_key_1", "value1");
   batch.Put("expire_key_2", "value2");
   batch.Put("expire_key_3", "value3");
-  s = db->WriteWithKeyTTL(rocksdb::WriteOptions(), &batch, 8);
+  s = db->Write(rocksdb::WriteOptions(), &batch, 8);
   if (!s.ok()) {
     std::cout << "Put Error: " << s.ToString() << std::endl;
   }
