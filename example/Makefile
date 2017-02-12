@@ -1,6 +1,5 @@
-CXX = g++
-
-CXXFLAGS = -Wall -W -Wno-unused-parameter -g -O2 -D__STDC_FORMAT_MACROS -fPIC -std=c++11 -DROCKSDB_PLATFORM_POSIX -DOS_LINUX -fno-builtin-memcmp -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2
+include ../rocksdb/make_config.mk
+CXXFLAGS = $(PLATFORM_CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -Wall -W -Wno-unused-parameter -g -O2 -D__STDC_FORMAT_MACROS 
 
 SRC_DIR = .
 OUTPUT = .
@@ -11,8 +10,7 @@ LIBS = -lpthread \
 			 -lrocksdb \
 			 -lsnappy \
 			 -lz \
-			 -lbz2 \
-			 -lrt
+			 -lbz2
 
 INCLUDE_PATH = -I../output/include/ \
 							 -I../rocksdb/ \
