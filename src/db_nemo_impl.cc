@@ -28,7 +28,7 @@ void DBNemoImpl::SanitizeOptions(ColumnFamilyOptions* options,
 
   if (options->merge_operator) {
     options->merge_operator.reset(
-        new NemoMergeOperator(options->merge_operator, env));
+        new NemoMergeOperator(options->merge_operator));
   }
 }
 
@@ -225,7 +225,7 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t 
         : db_(reinterpret_cast<DBImpl*>(db)), env_(env), ttl_(ttl) {}
 
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) {
+                         const Slice& value) override {
       std::string value_with_ts;
 
       Status st = AppendTS(value, &value_with_ts, env_, ttl_);
@@ -249,7 +249,8 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t 
       }
       return Status::OK();
     }
-    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+    virtual Status DeleteCF(uint32_t column_family_id,
+                            const Slice& key) override {
       WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
       return Status::OK();
     }

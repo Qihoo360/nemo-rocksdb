@@ -76,7 +76,8 @@ class DBNemoImpl : public DBNemo {
 
   using DBNemo::Write;
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates, int32_t ttl);
+  virtual Status Write(const WriteOptions& opts, WriteBatch* updates,
+                       int32_t ttl) override;
 
   using StackableDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& opts,
@@ -86,7 +87,8 @@ class DBNemoImpl : public DBNemo {
 
   static Status SanityCheckTimestamp(const Slice& str, Env* env);
 
-  static Status AppendTS(const Slice& val, std::string* val_with_ts, Env* env, int32_t ttl);
+  static Status AppendTS(const Slice& val, std::string* val_with_ts,
+                         Env* env, int32_t ttl);
 
   static bool IsStale(const Slice& value, int32_t ttl, Env* env);
 
@@ -98,7 +100,8 @@ class DBNemoImpl : public DBNemo {
 class NemoIterator : public Iterator {
 
  public:
-  explicit NemoIterator(Iterator* iter, Env* env) : iter_(iter), env_(env) { assert(iter_); }
+  explicit NemoIterator(Iterator* iter, Env* env)
+    : iter_(iter), env_(env) { assert(iter_); }
 
   ~NemoIterator() { delete iter_; }
 
@@ -147,7 +150,8 @@ class NemoIterator : public Iterator {
   void Next() override {
     while (iter_->Valid()) {
       iter_->Next();
-      if (iter_->Valid() && DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+      if (iter_->Valid()
+          && DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
         break;
       }
     }
@@ -156,7 +160,8 @@ class NemoIterator : public Iterator {
   void Prev() override {
     while (iter_->Valid()) {
       iter_->Prev();
-      if (iter_->Valid() && DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+      if (iter_->Valid()
+          && DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
         break;
       }
     }
@@ -263,11 +268,9 @@ class NemoCompactionFilterFactory : public CompactionFilterFactory {
 class NemoMergeOperator : public MergeOperator {
 
  public:
-  explicit NemoMergeOperator(const std::shared_ptr<MergeOperator>& merge_op,
-                            Env* env)
-      : user_merge_op_(merge_op), env_(env) {
+  explicit NemoMergeOperator(const std::shared_ptr<MergeOperator>& merge_op)
+      : user_merge_op_(merge_op) {
     assert(merge_op);
-    assert(env);
   }
 
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
@@ -363,7 +366,6 @@ class NemoMergeOperator : public MergeOperator {
 
  private:
   std::shared_ptr<MergeOperator> user_merge_op_;
-  Env* env_;
 };
 }
 #endif  // ROCKSDB_LITE
