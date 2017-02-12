@@ -268,9 +268,11 @@ class NemoCompactionFilterFactory : public CompactionFilterFactory {
 class NemoMergeOperator : public MergeOperator {
 
  public:
-  explicit NemoMergeOperator(const std::shared_ptr<MergeOperator>& merge_op)
-      : user_merge_op_(merge_op) {
+  explicit NemoMergeOperator(const std::shared_ptr<MergeOperator>& merge_op,
+                             Env* env)
+      : user_merge_op_(merge_op), env_(env) {
     assert(merge_op);
+    assert(env);
   }
 
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
@@ -296,16 +298,27 @@ class NemoMergeOperator : public MergeOperator {
 
     // Apply the user merge operator (store result in *new_value)
     bool good = true;
+    int32_t ttl = 0;
+    bool have_existing_value = false;
     MergeOperationOutput user_merge_out(merge_out->new_value,
                                         merge_out->existing_operand);
     if (merge_in.existing_value) {
-      Slice existing_value_without_ts(merge_in.existing_value->data(),
-                                      merge_in.existing_value->size() - ts_len);
-      good = user_merge_op_->FullMergeV2(
-          MergeOperationInput(merge_in.key, &existing_value_without_ts,
-                              operands_without_ts, merge_in.logger),
-          &user_merge_out);
-    } else {
+      if (DBNemoImpl::SanityCheckTimestamp(*(merge_in.existing_value), env_).ok()) {
+        have_existing_value = true;
+        ttl = DecodeFixed32(merge_in.existing_value->data() +
+                            merge_in.existing_value->size() -
+                            DBNemoImpl::kTSLength);
+        Slice existing_value_without_ts(merge_in.existing_value->data(),
+                                        merge_in.existing_value->size() - ts_len);
+        good = user_merge_op_->FullMergeV2(
+            MergeOperationInput(merge_in.key, &existing_value_without_ts,
+                                operands_without_ts, merge_in.logger),
+            &user_merge_out);
+      } else {
+        merge_out->new_value = std::string(nullptr, 0);
+      }
+    }
+    if (!have_existing_value) {
       good = user_merge_op_->FullMergeV2(
           MergeOperationInput(merge_in.key, nullptr, operands_without_ts,
                               merge_in.logger),
@@ -325,7 +338,7 @@ class NemoMergeOperator : public MergeOperator {
 
     // Augment the *new_value with the ttl time-stamp 0
     char ts_string[ts_len];
-    EncodeFixed32(ts_string, (int32_t)0);
+    EncodeFixed32(ts_string, ttl);
     merge_out->new_value.append(ts_string, ts_len);
     return true;
   }
@@ -366,6 +379,7 @@ class NemoMergeOperator : public MergeOperator {
 
  private:
   std::shared_ptr<MergeOperator> user_merge_op_;
+  Env* env_;
 };
 }
 #endif  // ROCKSDB_LITE

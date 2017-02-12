@@ -28,7 +28,7 @@ void DBNemoImpl::SanitizeOptions(ColumnFamilyOptions* options,
 
   if (options->merge_operator) {
     options->merge_operator.reset(
-        new NemoMergeOperator(options->merge_operator));
+        new NemoMergeOperator(options->merge_operator, env));
   }
 }
 

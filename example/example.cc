@@ -4,14 +4,46 @@
 #include <chrono>
 
 int main() {
+
+  class StringMergeOperator : public rocksdb::MergeOperator {
+    public:
+      virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+          MergeOperationOutput* merge_out) const override {
+        if (merge_in.existing_value) {
+          merge_out->new_value.append(merge_in.existing_value->data(), merge_in.existing_value->size());
+        }
+        for (const auto& operand : merge_in.operand_list) {
+          merge_out->new_value.append(operand.data(), operand.size());
+        }
+        return true;
+      }
+
+      virtual bool PartialMergeMulti(const rocksdb::Slice& key,
+          const std::deque<rocksdb::Slice>& operand_list,
+          std::string* new_value,
+          rocksdb::Logger* logger) const override {
+
+        for (const auto& operand : operand_list) {
+          new_value->append(operand.data(), operand.size());
+          new_value->append(operand.data(), operand.size());
+        }
+        return true;
+      }
+
+      virtual const char* Name() const override {
+        return "StringMergeOperator";
+      }
+  };
+
   rocksdb::DBNemo *db;
   rocksdb::Options options;
   options.create_if_missing = true;
+	options.merge_operator.reset(new StringMergeOperator());
   rocksdb::Status s = rocksdb::DBNemo::Open(options, "./db", &db);
 
 /*
  * 1. Test Put
- */
+ *
   {
   s = db->Put(rocksdb::WriteOptions(), "key", "value", 3);
   if (!s.ok()) {
@@ -33,6 +65,8 @@ int main() {
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
   }
+  *
+  */
 
 /*
  * 2. Test Iterator
@@ -136,5 +170,34 @@ int main() {
  *
  */
 
-  delete db;
+/*
+ * Test Merge
+ */
+  {
+  s = db->Put(rocksdb::WriteOptions(), "merge", "a", 3);
+  if (!s.ok()) {
+    std::cout << "Put Error: " << s.ToString() << std::endl;
+  }
+  s = db->Merge(rocksdb::WriteOptions(), "merge", "b");
+  if (!s.ok()) {
+    std::cout << "Merge Error: " << s.ToString() << std::endl;
+  }
+
+  int times = 5;
+  std::string value;
+  while (times--) {
+    value = std::string(nullptr, 0);
+    s = db->Get(rocksdb::ReadOptions(), "merge", &value);
+    if (s.ok()) {
+      std::cout << "Get key: " << "merge" << " value: "<< value << std::endl;
+    } else if (s.IsNotFound()) {
+      std::cout << "Get Nothing, key: " << "merge" << std::endl;
+    } else {
+      std::cout << "Get Error: " << s.ToString() << std::endl;
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+  }
+
+	delete db;
 }
