@@ -30,7 +30,9 @@ batch.Put("expire_key", "value"); // never to be expired
 db->Write(rocksdb::WriteOptions(), &batch, 6); // will be expired after 6s
 ```
 
-you can also create iterator by **NewIterator()** to iterate db, it will ignore the expired records automaticly.
+you can create iterator by **NewIterator()** to iterate db, it will ignore the expired records automaticly.
+
+you can also use **Merge** method on record which has been set TTL, and when the record expired later, the existing_value would disappear, then, you may get different result from geting before the record expired. read [Test Merge example](https://github.com/KernelMaker/nemo-rocksdb/blob/master/example/example.cc) to learn more.
 
 DBNemo uses specified inner CompactionFilter to drop the expired records in compaction process by default, you can add your own CompactionFilterFactory or CompactionFilter in rocksdb::Options, that's ok!
 
