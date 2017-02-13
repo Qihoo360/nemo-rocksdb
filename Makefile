@@ -1,13 +1,9 @@
-#CXX = g++
-#CXXFLAGS = -Wall -W -Wno-unused-parameter -g -O2 -D__STDC_FORMAT_MACROS -fPIC -std=c++11 -DROCKSDB_PLATFORM_POSIX -DOS_LINUX -fno-builtin-memcmp -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2
-#CXXFLAGS = -Wall -W -Wno-unused-parameter -g -O2 -D__STDC_FORMAT_MACROS -fPIC -std=c++11 -DROCKSDB_PLATFORM_POSIX -DOS_MACOSX -fno-builtin-memcmp -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2
-
 SRC_DIR = ./src
 OUTPUT = output
 
 ROCKSDB_PATH = ./rocksdb
 
-dummy_d := $(shell (make -j 4 -C ./rocksdb static_lib))
+dummy_d := $(shell (make -C ./rocksdb static_lib))
 include $(ROCKSDB_PATH)/make_config.mk
 CXXFLAGS = $(PLATFORM_CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -Wall -W -Wno-unused-parameter -g -O2 -D__STDC_FORMAT_MACROS 
 

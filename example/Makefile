@@ -5,12 +5,7 @@ SRC_DIR = .
 OUTPUT = .
 
 LIB_PATH = -L../output/lib
-LIBS = -lpthread \
-			 -lnemodb \
-			 -lrocksdb \
-			 -lsnappy \
-			 -lz \
-			 -lbz2
+LIBS = -lnemodb -lrocksdb $(PLATFORM_LDFLAGS)
 
 INCLUDE_PATH = -I../output/include/ \
 							 -I../rocksdb/ \
