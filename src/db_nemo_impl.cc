@@ -16,14 +16,15 @@
 namespace rocksdb {
 
 void DBNemoImpl::SanitizeOptions(ColumnFamilyOptions* options,
-                                    Env* env) {
+                                    Env* env, char meta_prefix) {
   if (options->compaction_filter) {
     options->compaction_filter =
-        new NemoCompactionFilter(env, options->compaction_filter);
+        new NemoCompactionFilter(env, options->compaction_filter, nullptr, meta_prefix);
   } else {
+    cff_ptr = new NemoCompactionFilterFactory(
+     env, options->compaction_filter_factory, nullptr, meta_prefix);
     options->compaction_filter_factory =
-        std::shared_ptr<CompactionFilterFactory>(new NemoCompactionFilterFactory(
-         env, options->compaction_filter_factory));
+        std::shared_ptr<CompactionFilterFactory>(cff_ptr);
   }
 
   if (options->merge_operator) {
@@ -33,7 +34,8 @@ void DBNemoImpl::SanitizeOptions(ColumnFamilyOptions* options,
 }
 
 // Open the db inside DBNemoImpl because options needs pointer to its ttl
-DBNemoImpl::DBNemoImpl(DB* db) : DBNemo(db) {}
+DBNemoImpl::DBNemoImpl(DB* db, char meta_prefix) :
+  DBNemo(db), meta_prefix_(meta_prefix) {}
 
 DBNemoImpl::~DBNemoImpl() {
   // Need to stop background compaction before getting rid of the filter
@@ -41,8 +43,8 @@ DBNemoImpl::~DBNemoImpl() {
   delete GetOptions().compaction_filter;
 }
 
-Status DBNemo::Open(const Options& options, const std::string& dbname,
-                       DBNemo** dbptr, bool read_only) {
+Status DBNemo::Open(Options& options, const std::string& dbname,
+                       DBNemo** dbptr, char meta_prefix, bool read_only) {
 
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
@@ -51,7 +53,7 @@ Status DBNemo::Open(const Options& options, const std::string& dbname,
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DBNemo::Open(db_options, dbname, column_families, &handles,
-                             dbptr, read_only);
+                             dbptr, meta_prefix, read_only);
   if (s.ok()) {
     assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to
@@ -62,17 +64,18 @@ Status DBNemo::Open(const Options& options, const std::string& dbname,
 }
 
 Status DBNemo::Open(
-    const DBOptions& db_options, const std::string& dbname,
+    DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DBNemo** dbptr,
-    bool read_only) {
+    char meta_prefix, bool read_only) {
 
   std::vector<ColumnFamilyDescriptor> column_families_sanitized =
       column_families;
   for (size_t i = 0; i < column_families_sanitized.size(); ++i) {
     DBNemoImpl::SanitizeOptions(
         &column_families_sanitized[i].options,
-        db_options.env == nullptr ? Env::Default() : db_options.env);
+        db_options.env == nullptr ? Env::Default() : db_options.env,
+        meta_prefix);
   }
   DB* db;
 
@@ -84,10 +87,11 @@ Status DBNemo::Open(
     st = DB::Open(db_options, dbname, column_families_sanitized, handles, &db);
   }
   if (st.ok()) {
-    *dbptr = new DBNemoImpl(db);
+    *dbptr = new DBNemoImpl(db, meta_prefix);
   } else {
     *dbptr = nullptr;
   }
+  cff_ptr->SetDBAndMP(db, meta_prefix);
   return st;
 }
 
@@ -95,7 +99,7 @@ Status DBNemoImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
                                          const std::string& column_family_name,
                                          ColumnFamilyHandle** handle) {
   ColumnFamilyOptions sanitized_options = options;
-  DBNemoImpl::SanitizeOptions(&sanitized_options, GetEnv());
+  DBNemoImpl::SanitizeOptions(&sanitized_options, GetEnv(), kMetaPrefixKv);
 
   return DBNemo::CreateColumnFamily(sanitized_options, column_family_name,
                                        handle);
@@ -120,9 +124,9 @@ Status DBNemoImpl::SanityCheckTimestamp(const Slice& str, Env* env) {
   return Status::OK();
 }
 
-// Checks if the string is stale or not according to TTl provided
-bool DBNemoImpl::IsStale(const Slice& value, int32_t ttl, Env* env) {
-  if (ttl <= 0) {  // Data is fresh if TTL is non-positive
+// Checks if the string is stale or not according to timestamp provided
+bool DBNemoImpl::IsStale(const Slice& value, int32_t timestamp, Env* env) {
+  if (timestamp <= 0) {  // Data is fresh if TTL is non-positive
     return false;
   }
   int64_t curtime;
@@ -131,24 +135,63 @@ bool DBNemoImpl::IsStale(const Slice& value, int32_t ttl, Env* env) {
   }
   int32_t timestamp_value =
       DecodeFixed32(value.data() + value.size() - kTSLength);
-  return (timestamp_value + ttl) < curtime;
+  std::cout << "timestamp_value: " << timestamp_value << " curtime: " << curtime << std::endl; 
+  return (timestamp_value) < curtime;
+}
+
+Status DBNemoImpl::ExtractVersionAndTS(const Slice& value, int32_t* version, int32_t *timestamp) {
+  Status st;
+  if (value.size() < kVersionLength + kTSLength) {
+    return Status::Corruption("Bad version-timestamp in key-value");
+  }
+  *version = DecodeFixed32(value.data() + value.size() - kVersionLength - kTSLength);
+  *timestamp = DecodeFixed32(value.data() + value.size() - kTSLength);
+  return st;
+}
+
+void DBNemoImpl::ExtractUserKey(char meta_prefix, const Slice& key, std::string* user_key) {
+  if (meta_prefix == kMetaPrefixKv) {
+//    user_key->reserve(key.size());
+    user_key->assign(key.data(), key.size());
+      return;
+  }
+  if (meta_prefix == key[0]) {
+//    user_key->reserve(key.size()-1);
+    user_key->assign(key.data()+1, key.size()-1);
+  } else {
+    int32_t len = *((uint8_t *)(key.data() + 1));
+//    user_key->reserve(len);
+    user_key->assign(key.data() + 2, len);
+  }
+  return;
 }
 
 // Strips the TS from the end of the string
 Status DBNemoImpl::StripTS(std::string* str) {
-  Status st;
-  if (str->length() < kTSLength) {
-    return Status::Corruption("Bad timestamp in key-value");
-  }
-  // Erasing characters which hold the TS
-  str->erase(str->length() - kTSLength, kTSLength);
-  return st;
+Status st;
+if (str->length() < kTSLength) {
+  return Status::Corruption("Bad timestamp in key-value");
+}
+// Erasing characters which hold the TS
+str->erase(str->length() - kTSLength, kTSLength);
+return st;
+}
+
+// Strips the Version and TS from the end of the string
+Status DBNemoImpl::StripVersionAndTS(std::string* str) {
+Status st;
+if (str->length() < kVersionLength + kTSLength) {
+  return Status::Corruption("Bad version-timestamp in key-value");
+}
+// Erasing characters which hold the TS
+str->erase(str->length() - kVersionLength - kTSLength, kVersionLength + kTSLength);
+return st;
 }
 
 Status DBNemoImpl::Put(const WriteOptions& options,
-                          ColumnFamilyHandle* column_family, const Slice& key,
-                          const Slice& val) {
-  return Put(options, column_family, key, val, 0);
+                        ColumnFamilyHandle* column_family, const Slice& key,
+                        const Slice& val) {
+return Put(options, column_family, key, val, 0);
 }
 
 Status DBNemoImpl::Put(const WriteOptions& options, ColumnFamilyHandle* column_family, const Slice& key, const Slice& val, int32_t ttl) {
@@ -164,11 +207,11 @@ Status DBNemoImpl::Get(const ReadOptions& options,
   if (!st.ok()) {
     return st;
   }
-  st = SanityCheckTimestamp(*value, db_->GetEnv());
+  st = SanityCheckVersionAndTS(db_, meta_prefix_, key, *value, db_->GetEnv());
   if (!st.ok()) {
     return st;
   }
-  return StripTS(value);
+  return StripVersionAndTS(value);
 }
 
 std::vector<Status> DBNemoImpl::MultiGet(
@@ -221,31 +264,37 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t 
     WriteBatch updates_ttl;
     Status batch_rewrite_status;
 
-    explicit Handler(Env* env, int32_t ttl, DB* db)
-        : db_(reinterpret_cast<DBImpl*>(db)), env_(env), ttl_(ttl) {}
+    explicit Handler(Env* env, int32_t ttl, DB* db, char meta_prefix)
+        : db_(reinterpret_cast<DBImpl*>(db)), env_(env), ttl_(ttl),
+          meta_prefix_(meta_prefix) {}
 
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
-      std::string value_with_ts;
+      std::string value_with_ver_ts;
+      int32_t version;
+      int32_t timestamp;
+      GetVersionAndTS(db_, meta_prefix_, key, &version, &timestamp);
 
-      Status st = AppendTS(value, &value_with_ts, env_, ttl_);
+      Status st = AppendVersionAndTS(value, &value_with_ver_ts,
+                      env_, version, ttl_);
       if (!st.ok()) {
         batch_rewrite_status = st;
       } else {
         WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
-                                value_with_ts);
+                                value_with_ver_ts);
       }
       return Status::OK();
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) override {
-      std::string value_with_ts;
-      Status st = AppendTS(value, &value_with_ts, env_, 0);
+      std::string value_with_ver_ts;
+      Status st = AppendVersionAndTS(value, &value_with_ver_ts,
+                      env_, 0, 0);
       if (!st.ok()) {
         batch_rewrite_status = st;
       } else {
         WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
-                                  value_with_ts);
+                                  value_with_ver_ts);
       }
       return Status::OK();
     }
@@ -261,9 +310,10 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t 
    private:
     Env* env_;
     int32_t ttl_;
+    char meta_prefix_;
   };
   //@ADD assign the db pointer
-  Handler handler(GetEnv(), ttl, db_);
+  Handler handler(GetEnv(), ttl, db_, meta_prefix_);
 
   updates->Iterate(&handler);
   if (!handler.batch_rewrite_status.ok()) {
@@ -275,7 +325,7 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t 
 
 Iterator* DBNemoImpl::NewIterator(const ReadOptions& opts,
                                      ColumnFamilyHandle* column_family) {
-  return new NemoIterator(db_->NewIterator(opts, column_family), db_->GetEnv());
+  return new NemoIterator(db_->NewIterator(opts, column_family), db_->GetEnv(), db_, meta_prefix_);
 }
 
 Status DBNemoImpl::AppendTS(const Slice& val, std::string* val_with_ts,
@@ -296,5 +346,102 @@ Status DBNemoImpl::AppendTS(const Slice& val, std::string* val_with_ts,
   val_with_ts->append(ts_string, kTSLength);
   return Status::OK();
 }
+
+Status DBNemoImpl::AppendVersionAndTS(const Slice& val, 
+    std::string* val_with_ver_ts, Env* env, int32_t version, int32_t ttl) {
+
+  val_with_ver_ts->reserve(kVersionLength + kTSLength + val.size());
+  val_with_ver_ts->append(val.data(), val.size());
+
+  char ver_string[kVersionLength];
+  EncodeFixed32(ver_string, (int32_t)version);
+  val_with_ver_ts->append(ver_string, kVersionLength);
+
+  char ts_string[kTSLength];
+  if (ttl <= 0) {
+    EncodeFixed32(ts_string, 0);
+  } else {
+    int64_t curtime;
+    Status st = env->GetCurrentTime(&curtime);
+    if (!st.ok()) {
+      return st;
+    }
+    EncodeFixed32(ts_string, (int32_t)(curtime+ttl-1));
+  }
+  val_with_ver_ts->append(ts_string, kTSLength);
+
+  return Status::OK(); 
+}
+
+void DBNemoImpl::GetVersionAndTS(DB* db, char meta_prefix,
+      const Slice& key, int32_t* version, int32_t* timestamp) {
+  *version = *timestamp = 0;
+
+  if (meta_prefix == kMetaPrefixKv) {
+    return;
+  }
+
+  std::string value;
+  Status s;
+
+  if (meta_prefix == key[0]) {
+    s = db->Get(ReadOptions(), key, &value);
+  } else {
+    if (key.size() == 1) {
+      // this is Seperator between meta and data, just ignore
+      *version = *timestamp = 0;
+      return;
+    }
+
+    std::string meta_key(1, meta_prefix);
+    int32_t len = *((uint8_t*)(key.data()+1));
+    meta_key.append(key.data()+2, len);
+    s = db->Get(ReadOptions(), meta_key, &value);
+  }
+
+  if (s.ok()) {
+    *version = DecodeFixed32(value.data() + value.size() - kVersionLength - kTSLength);
+    *timestamp = DecodeFixed32(value.data() + value.size() - kTSLength);
+  }
+
+  return; 
+
+}
+
+Status DBNemoImpl::SanityCheckVersionAndTS(DB* db, char meta_prefix,
+                  const Slice& key, const Slice& val, Env* env) {
+
+  std::string meta_value;
+
+  int32_t timestamp_value = DecodeFixed32(val.data() + val.size() - kTSLength);
+  // data key
+  if (meta_prefix != kMetaPrefixKv && meta_prefix != key[0]) {
+    std::string meta_key(1, meta_prefix);
+    int32_t len = *((uint8_t *)(key.data() + 1));
+    meta_key.append(key.data() + 2, len);
+
+    Status st = db->Get(ReadOptions(), meta_key, &meta_value);
+    if (st.ok()) {
+      // Checks that Version is not older than key version
+      int32_t meta_version = DecodeFixed32(meta_value.data() + meta_value.size() - kTSLength - kVersionLength);
+      int32_t data_version = DecodeFixed32(val.data() + val.size() - kTSLength - kVersionLength);
+      if (data_version < meta_version) {
+        return Status::NotFound("old version\n");
+      }
+    }
+    timestamp_value = DecodeFixed32(meta_value.data() + meta_value.size() - kTSLength);
+  }
+
+  int64_t curtime;
+  // Treat the data as fresh if could not get current time
+  if (env->GetCurrentTime(&curtime).ok()) {
+    if (timestamp_value != 0 && timestamp_value < curtime) { // 0 means fresh
+      return Status::NotFound("Is stale\n");
+    }
+  }
+
+  return Status::OK();
+}
+
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

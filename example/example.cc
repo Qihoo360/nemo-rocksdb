@@ -65,8 +65,8 @@ int main() {
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
   }
-  *
-  */
+ *
+ */
 
 /*
  * 2. Test Iterator
@@ -94,7 +94,8 @@ int main() {
   }
 
   rocksdb::Iterator* iter = db->NewIterator(rocksdb::ReadOptions());
-  while (true) {
+  int times = 8
+  while (times--) {
     iter->SeekToFirst();
     std::cout << "---------------------------" << std::endl;
     while (iter->Valid()) {
@@ -110,8 +111,10 @@ int main() {
 
 /*
  * 3. Test CompactFilter
- *
+ */
   {
+  rocksdb::Options op = db->GetOptions(); 
+  std::cout << op.compaction_filter_factory << std::endl;
   s = db->Put(rocksdb::WriteOptions(), "persistent_key", "KernelMaker");
   if (!s.ok()) {
     std::cout << "Put Error: " << s.ToString() << std::endl;
@@ -167,12 +170,10 @@ int main() {
     }
   }
   }
- *
- */
 
 /*
- * Test Merge
- */
+ * 4. Test Merge
+ *
   {
   s = db->Put(rocksdb::WriteOptions(), "merge", "a", 3);
   if (!s.ok()) {
@@ -198,6 +199,8 @@ int main() {
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
   }
+ *
+ */
 
 	delete db;
 }

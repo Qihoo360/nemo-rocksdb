@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include <iostream>
+
 #include "db_nemo.h"
 
 #include "rocksdb/db.h"
@@ -26,12 +28,20 @@
 
 namespace rocksdb {
 
+const char kMetaPrefixKv = '\0';
+const char kMetaPrefixHash = 'H';
+const char kMetaPrefixZset = 'Z';
+const char kMetaPrefixSet = 'S';
+const char kMetaPrefixList = 'L';
+
+class NemoCompactionFilterFactory;
+
 class DBNemoImpl : public DBNemo {
  public:
   static void SanitizeOptions(ColumnFamilyOptions* options,
-                              Env* env);
+                              Env* env, char meta_prefix);
 
-  explicit DBNemoImpl(DB* db);
+  explicit DBNemoImpl(DB* db, char meta_prefix);
 
   virtual ~DBNemoImpl();
 
@@ -85,23 +95,47 @@ class DBNemoImpl : public DBNemo {
 
   virtual DB* GetBaseDB() override { return db_; }
 
+  static void GetVersionAndTS(DB* db, char meta_prefix,
+         const Slice& key, int32_t* version, int32_t* timestamp);
+
   static Status SanityCheckTimestamp(const Slice& str, Env* env);
 
   static Status AppendTS(const Slice& val, std::string* val_with_ts,
                          Env* env, int32_t ttl);
 
+  static Status AppendVersionAndTS(const Slice& val, std::string* val_with_ver_ts,
+                                   Env* env, int32_t version, int32_t ttl);
+
+  static Status SanityCheckVersionAndTS(DB* db, char meta_prefix,
+                    const Slice& key, const Slice& val, Env* env);
+
   static bool IsStale(const Slice& value, int32_t ttl, Env* env);
+  
+  static Status ExtractVersionAndTS(const Slice& value, int32_t* version, int32_t *timestamp);
+
+  static void ExtractUserKey(char meta_prefix, const Slice& key, std::string* user_key);
 
   static Status StripTS(std::string* str);
+  static Status StripVersionAndTS(std::string* str);
+
 
   static const uint32_t kTSLength = sizeof(int32_t);  // size of timestamp
+  static const uint32_t kVersionLength = sizeof(int32_t);  // size of version
+ private:
+  char meta_prefix_;
 };
+
+static NemoCompactionFilterFactory* cff_ptr = nullptr;
 
 class NemoIterator : public Iterator {
 
  public:
-  explicit NemoIterator(Iterator* iter, Env* env)
-    : iter_(iter), env_(env) { assert(iter_); }
+  explicit NemoIterator(Iterator* iter, Env* env, DB* db,
+                        char meta_prefix)
+    : iter_(iter), env_(env),
+      db_(db), meta_prefix_(meta_prefix),
+      user_key_(nullptr, 0), version_(0),
+      timestamp_(0) { assert(iter_); }
 
   ~NemoIterator() { delete iter_; }
 
@@ -110,7 +144,13 @@ class NemoIterator : public Iterator {
   void SeekToFirst() override {
     iter_->SeekToFirst();
     while (iter_->Valid()) {
-      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+      if (Check()) {
+        break;
+      }
+//      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+//        break;
+//      }
+      if (Check()) {
         break;
       }
       iter_->Next();
@@ -120,7 +160,10 @@ class NemoIterator : public Iterator {
   void SeekToLast() override {
     iter_->SeekToLast();
     while (iter_->Valid()) {
-      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+//      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+//        break;
+//      }
+      if (Check()) {
         break;
       }
       iter_->Prev();
@@ -130,7 +173,10 @@ class NemoIterator : public Iterator {
   void Seek(const Slice& target) override {
     iter_->Seek(target);
     while (iter_->Valid()) {
-      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+//      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+//        break;
+//      }
+      if (Check()) {
         break;
       }
       iter_->Next();
@@ -140,7 +186,10 @@ class NemoIterator : public Iterator {
   void SeekForPrev(const Slice& target) override {
     iter_->SeekForPrev(target);
     while (iter_->Valid()) {
-      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+//      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+//        break;
+//      }
+      if (Check()) {
         break;
       }
       iter_->Prev();
@@ -150,8 +199,9 @@ class NemoIterator : public Iterator {
   void Next() override {
     while (iter_->Valid()) {
       iter_->Next();
-      if (iter_->Valid()
-          && DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+//      if (iter_->Valid()
+//          && DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+      if (iter_->Valid() && Check()) {
         break;
       }
     }
@@ -160,8 +210,9 @@ class NemoIterator : public Iterator {
   void Prev() override {
     while (iter_->Valid()) {
       iter_->Prev();
-      if (iter_->Valid()
-          && DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+//      if (iter_->Valid()
+//          && DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
+      if (iter_->Valid() && Check()) {
         break;
       }
     }
@@ -177,7 +228,7 @@ class NemoIterator : public Iterator {
   Slice value() const override {
     // TODO: handle timestamp corruption like in general iterator semantics
     Slice trimmed_value = iter_->value();
-    trimmed_value.size_ -= DBNemoImpl::kTSLength;
+    trimmed_value.size_ -= (DBNemoImpl::kVersionLength + DBNemoImpl::kTSLength);
     return trimmed_value;
   }
 
@@ -186,16 +237,53 @@ class NemoIterator : public Iterator {
  private:
   Iterator* iter_;
   Env* env_;
+  DB* db_;
+  char meta_prefix_;
+  Slice user_key_;
+  int32_t version_;
+  int32_t timestamp_;
+  
+  bool Check() {
+    if (!iter_->Valid()) {
+      return false;
+    }
+
+    int32_t ver;
+    int32_t ts;
+    Status s = DBNemoImpl::ExtractVersionAndTS(iter_->value(), &ver, &ts);
+    if (!s.ok()) {
+      return false;
+    }
+
+    std::string user_key;
+    DBNemoImpl::ExtractUserKey(meta_prefix_, iter_->key(), &user_key);
+
+    if (user_key != user_key_) {
+      user_key_ = user_key;
+      DBNemoImpl::GetVersionAndTS(db_, meta_prefix_, iter_->key(), &version_, &timestamp_);
+    }
+
+    if (DBNemoImpl::IsStale(iter_->value(), ts, env_) || ver < version_) {
+      return false;
+    } else {
+      return true;
+    }
+  }
 };
 
 class NemoCompactionFilter : public CompactionFilter {
  public:
   NemoCompactionFilter(
       Env* env, const CompactionFilter* user_comp_filter,
+      DB* db, char meta_prefix,
       std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory =
           nullptr)
       : env_(env),
         user_comp_filter_(user_comp_filter),
+        db_(db),
+        meta_prefix_(meta_prefix),
+        user_key_(nullptr, 0),
+        version_(0), timestamp_(0),
         user_comp_filter_from_factory_(
             std::move(user_comp_filter_from_factory)) {
     // Unlike the merge operator, compaction filter is necessary for TTL, hence
@@ -216,7 +304,8 @@ class NemoCompactionFilter : public CompactionFilter {
       return true;
     }
 
-    if (DBNemoImpl::SanityCheckTimestamp(old_val, env_).IsNotFound()) {
+//    if (DBNemoImpl::SanityCheckTimestamp(old_val, env_).IsNotFound()) {
+    if (ShouldDrop(key, old_val)) {
       return true;
     }
 
@@ -233,15 +322,58 @@ class NemoCompactionFilter : public CompactionFilter {
  private:
   Env* env_;
   const CompactionFilter* user_comp_filter_;
+  DB* db_;
+  char meta_prefix_;
+  mutable Slice user_key_;
+  mutable int32_t version_;
+  mutable int32_t timestamp_;
   std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory_;
+  bool ShouldDrop(const Slice& key, const Slice& old_val) const {
+
+    int32_t ver;
+    int32_t ts;
+    std::cout << "---------------------------------------------" << std::endl;
+    Status s = DBNemoImpl::ExtractVersionAndTS(old_val, &ver, &ts);
+    if (!s.ok()) {
+      return true;
+    }
+    std::cout << "old_version: " << ver << " old_TS: " << ts << std::endl;
+
+    std::string user_key;
+    DBNemoImpl::ExtractUserKey(meta_prefix_, key, &user_key);
+    std::cout << "meta_prefix: " << meta_prefix_ << " user_key: " << key.ToString() << " user_key_: " << user_key_.ToString() << std::endl;
+
+    if (user_key != user_key_) {
+      user_key_ = user_key;
+      DBNemoImpl::GetVersionAndTS(db_, meta_prefix_, key, &version_, &timestamp_);
+      std::cout << "meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
+    }
+    if (key[0] == kMetaPrefixHash ||
+        key[0] == kMetaPrefixList || key[0] == kMetaPrefixZset ||
+        key[0] == kMetaPrefixSet) {
+      if (key.size() != 1 && ver < version_) {
+        return true;
+      }
+      return false;
+    }
+    if (DBNemoImpl::IsStale(old_val, ts, env_) || ver < version_) {
+      std::cout << "should drop" << std::endl;
+      return true;
+    } else {
+      std::cout << "shouldn't drop" << std::endl;
+      return false;
+    }
+  }
 };
 
 class NemoCompactionFilterFactory : public CompactionFilterFactory {
  public:
   NemoCompactionFilterFactory(
       Env* env,
-      std::shared_ptr<CompactionFilterFactory> comp_filter_factory)
-      : env_(env), user_comp_filter_factory_(comp_filter_factory) {}
+      std::shared_ptr<CompactionFilterFactory> comp_filter_factory,
+      DB* db, char meta_prefix)
+      : env_(env), user_comp_filter_factory_(comp_filter_factory),
+        db_(db), meta_prefix_(meta_prefix) {}
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
@@ -253,16 +385,23 @@ class NemoCompactionFilterFactory : public CompactionFilterFactory {
     }
 
     return std::unique_ptr<NemoCompactionFilter>(new NemoCompactionFilter(
-        env_, nullptr, std::move(user_comp_filter_from_factory)));
+        env_, nullptr, db_, meta_prefix_, std::move(user_comp_filter_from_factory)));
   }
 
   virtual const char* Name() const override {
     return "NemoCompactionFilterFactory";
   }
+  
+  void SetDBAndMP(DB* db, char meta_prefix) const {
+    db_ = db;
+    meta_prefix_ = meta_prefix;
+  }
 
  private:
   Env* env_;
   std::shared_ptr<CompactionFilterFactory> user_comp_filter_factory_;
+  mutable DB* db_;
+  mutable char meta_prefix_;
 };
 
 class NemoMergeOperator : public MergeOperator {

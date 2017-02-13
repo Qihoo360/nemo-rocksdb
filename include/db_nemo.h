@@ -17,14 +17,15 @@ namespace rocksdb {
 class DBNemo: public StackableDB {
  public:
 
-  static Status Open(const Options& options, const std::string& dbname,
+  static Status Open(Options& options, const std::string& dbname,
                      DBNemo** dbptr,
-                     bool read_only = false);
+                     char meta_prefix = '\0', bool read_only = false);
 
-  static Status Open(const DBOptions& db_options, const std::string& dbname,
+  static Status Open(DBOptions& db_options, const std::string& dbname,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
                      DBNemo** dbptr,
+                     char meta_prefix = '\0',
                      bool read_only = false);
 
   using StackableDB::Put;
