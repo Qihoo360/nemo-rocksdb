@@ -18,13 +18,13 @@ namespace rocksdb {
 void DBNemoImpl::SanitizeOptions(ColumnFamilyOptions* options,
                                     Env* env, char meta_prefix) {
   if (options->compaction_filter) {
-    options->compaction_filter =
+    options->compaction_filter = g_compaction_filter = 
         new NemoCompactionFilter(env, options->compaction_filter, nullptr, meta_prefix);
   } else {
-    cff_ptr = new NemoCompactionFilterFactory(
+    g_compaction_filter_factory = new NemoCompactionFilterFactory(
      env, options->compaction_filter_factory, nullptr, meta_prefix);
     options->compaction_filter_factory =
-        std::shared_ptr<CompactionFilterFactory>(cff_ptr);
+        std::shared_ptr<CompactionFilterFactory>(g_compaction_filter_factory);
   }
 
   if (options->merge_operator) {
@@ -91,7 +91,7 @@ Status DBNemo::Open(
   } else {
     *dbptr = nullptr;
   }
-  cff_ptr->SetDBAndMP(db, meta_prefix);
+  g_compaction_filter_factory->SetDBAndMP(db, meta_prefix);
   return st;
 }
 
@@ -99,7 +99,7 @@ Status DBNemoImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
                                          const std::string& column_family_name,
                                          ColumnFamilyHandle** handle) {
   ColumnFamilyOptions sanitized_options = options;
-  DBNemoImpl::SanitizeOptions(&sanitized_options, GetEnv(), kMetaPrefixKv);
+  DBNemoImpl::SanitizeOptions(&sanitized_options, GetEnv(), meta_prefix_);
 
   return DBNemo::CreateColumnFamily(sanitized_options, column_family_name,
                                        handle);
@@ -114,7 +114,6 @@ Status DBNemoImpl::SanityCheckTimestamp(const Slice& str, Env* env) {
 
   int32_t timestamp_value = DecodeFixed32(str.data() + str.size() - kTSLength);
   int64_t curtime;
-//  if (!(db_->GetEnv()->GetCurrentTime(&curtime)).ok()) {
   if (!(env->GetCurrentTime(&curtime)).ok()) {
     return Status::OK();  // Treat the data as fresh if could not get current time
   }
@@ -125,7 +124,7 @@ Status DBNemoImpl::SanityCheckTimestamp(const Slice& str, Env* env) {
 }
 
 // Checks if the string is stale or not according to timestamp provided
-bool DBNemoImpl::IsStale(const Slice& value, int32_t timestamp, Env* env) {
+bool DBNemoImpl::IsStale(int32_t timestamp, Env* env) {
   if (timestamp <= 0) {  // Data is fresh if TTL is non-positive
     return false;
   }
@@ -133,10 +132,11 @@ bool DBNemoImpl::IsStale(const Slice& value, int32_t timestamp, Env* env) {
   if (!env->GetCurrentTime(&curtime).ok()) {
     return false;  // Treat the data as fresh if could not get current time
   }
-  int32_t timestamp_value =
-      DecodeFixed32(value.data() + value.size() - kTSLength);
-  std::cout << "timestamp_value: " << timestamp_value << " curtime: " << curtime << std::endl; 
-  return (timestamp_value) < curtime;
+//  int32_t timestamp_value =
+//      DecodeFixed32(value.data() + value.size() - kTSLength);
+//  std::cout << "timestamp_value: " << timestamp_value << " curtime: " << curtime << std::endl; 
+//  return (timestamp_value) < curtime;
+  return timestamp < curtime;
 }
 
 Status DBNemoImpl::ExtractVersionAndTS(const Slice& value, int32_t* version, int32_t *timestamp) {
@@ -151,16 +151,13 @@ Status DBNemoImpl::ExtractVersionAndTS(const Slice& value, int32_t* version, int
 
 void DBNemoImpl::ExtractUserKey(char meta_prefix, const Slice& key, std::string* user_key) {
   if (meta_prefix == kMetaPrefixKv) {
-//    user_key->reserve(key.size());
     user_key->assign(key.data(), key.size());
       return;
   }
   if (meta_prefix == key[0]) {
-//    user_key->reserve(key.size()-1);
     user_key->assign(key.data()+1, key.size()-1);
   } else {
     int32_t len = *((uint8_t *)(key.data() + 1));
-//    user_key->reserve(len);
     user_key->assign(key.data() + 2, len);
   }
   return;
@@ -207,7 +204,7 @@ Status DBNemoImpl::Get(const ReadOptions& options,
   if (!st.ok()) {
     return st;
   }
-  st = SanityCheckVersionAndTS(db_, meta_prefix_, key, *value, db_->GetEnv());
+  st = SanityCheckVersionAndTS(key, *value);
   if (!st.ok()) {
     return st;
   }
@@ -408,19 +405,19 @@ void DBNemoImpl::GetVersionAndTS(DB* db, char meta_prefix,
 
 }
 
-Status DBNemoImpl::SanityCheckVersionAndTS(DB* db, char meta_prefix,
-                  const Slice& key, const Slice& val, Env* env) {
+Status DBNemoImpl::SanityCheckVersionAndTS(const Slice& key,
+                    const Slice& val) {
 
   std::string meta_value;
 
   int32_t timestamp_value = DecodeFixed32(val.data() + val.size() - kTSLength);
   // data key
-  if (meta_prefix != kMetaPrefixKv && meta_prefix != key[0]) {
-    std::string meta_key(1, meta_prefix);
+  if (meta_prefix_ != kMetaPrefixKv && meta_prefix_ != key[0]) {
+    std::string meta_key(1, meta_prefix_);
     int32_t len = *((uint8_t *)(key.data() + 1));
     meta_key.append(key.data() + 2, len);
 
-    Status st = db->Get(ReadOptions(), meta_key, &meta_value);
+    Status st = db_->Get(ReadOptions(), meta_key, &meta_value);
     if (st.ok()) {
       // Checks that Version is not older than key version
       int32_t meta_version = DecodeFixed32(meta_value.data() + meta_value.size() - kTSLength - kVersionLength);
@@ -434,7 +431,7 @@ Status DBNemoImpl::SanityCheckVersionAndTS(DB* db, char meta_prefix,
 
   int64_t curtime;
   // Treat the data as fresh if could not get current time
-  if (env->GetCurrentTime(&curtime).ok()) {
+  if (GetEnv()->GetCurrentTime(&curtime).ok()) {
     if (timestamp_value != 0 && timestamp_value < curtime) { // 0 means fresh
       return Status::NotFound("Is stale\n");
     }

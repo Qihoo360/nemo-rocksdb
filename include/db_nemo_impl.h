@@ -34,6 +34,7 @@ const char kMetaPrefixZset = 'Z';
 const char kMetaPrefixSet = 'S';
 const char kMetaPrefixList = 'L';
 
+class NemoCompactionFilter;
 class NemoCompactionFilterFactory;
 
 class DBNemoImpl : public DBNemo {
@@ -106,10 +107,9 @@ class DBNemoImpl : public DBNemo {
   static Status AppendVersionAndTS(const Slice& val, std::string* val_with_ver_ts,
                                    Env* env, int32_t version, int32_t ttl);
 
-  static Status SanityCheckVersionAndTS(DB* db, char meta_prefix,
-                    const Slice& key, const Slice& val, Env* env);
+  Status SanityCheckVersionAndTS(const Slice& key, const Slice& val);
 
-  static bool IsStale(const Slice& value, int32_t ttl, Env* env);
+  static bool IsStale(int32_t timestamp, Env* env);
   
   static Status ExtractVersionAndTS(const Slice& value, int32_t* version, int32_t *timestamp);
 
@@ -125,7 +125,8 @@ class DBNemoImpl : public DBNemo {
   char meta_prefix_;
 };
 
-static NemoCompactionFilterFactory* cff_ptr = nullptr;
+static NemoCompactionFilter* g_compaction_filter = nullptr;
+static NemoCompactionFilterFactory* g_compaction_filter_factory = nullptr;
 
 class NemoIterator : public Iterator {
 
@@ -144,13 +145,7 @@ class NemoIterator : public Iterator {
   void SeekToFirst() override {
     iter_->SeekToFirst();
     while (iter_->Valid()) {
-      if (Check()) {
-        break;
-      }
-//      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
-//        break;
-//      }
-      if (Check()) {
+      if (IsAlive()) {
         break;
       }
       iter_->Next();
@@ -160,10 +155,7 @@ class NemoIterator : public Iterator {
   void SeekToLast() override {
     iter_->SeekToLast();
     while (iter_->Valid()) {
-//      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
-//        break;
-//      }
-      if (Check()) {
+      if (IsAlive()) {
         break;
       }
       iter_->Prev();
@@ -173,10 +165,7 @@ class NemoIterator : public Iterator {
   void Seek(const Slice& target) override {
     iter_->Seek(target);
     while (iter_->Valid()) {
-//      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
-//        break;
-//      }
-      if (Check()) {
+      if (IsAlive()) {
         break;
       }
       iter_->Next();
@@ -186,10 +175,7 @@ class NemoIterator : public Iterator {
   void SeekForPrev(const Slice& target) override {
     iter_->SeekForPrev(target);
     while (iter_->Valid()) {
-//      if (DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
-//        break;
-//      }
-      if (Check()) {
+      if (IsAlive()) {
         break;
       }
       iter_->Prev();
@@ -199,9 +185,7 @@ class NemoIterator : public Iterator {
   void Next() override {
     while (iter_->Valid()) {
       iter_->Next();
-//      if (iter_->Valid()
-//          && DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
-      if (iter_->Valid() && Check()) {
+      if (iter_->Valid() && IsAlive()) {
         break;
       }
     }
@@ -210,9 +194,7 @@ class NemoIterator : public Iterator {
   void Prev() override {
     while (iter_->Valid()) {
       iter_->Prev();
-//      if (iter_->Valid()
-//          && DBNemoImpl::SanityCheckTimestamp(iter_->value(), env_).ok()) {
-      if (iter_->Valid() && Check()) {
+      if (iter_->Valid() && IsAlive()) {
         break;
       }
     }
@@ -243,29 +225,35 @@ class NemoIterator : public Iterator {
   int32_t version_;
   int32_t timestamp_;
   
-  bool Check() {
+  bool IsAlive() {
     if (!iter_->Valid()) {
       return false;
     }
 
     int32_t ver;
     int32_t ts;
+//    std::cout << "---------------------------------------------" << std::endl;
     Status s = DBNemoImpl::ExtractVersionAndTS(iter_->value(), &ver, &ts);
     if (!s.ok()) {
       return false;
     }
+//    std::cout << "old_version: " << ver << " old_TS: " << ts << std::endl;
 
     std::string user_key;
     DBNemoImpl::ExtractUserKey(meta_prefix_, iter_->key(), &user_key);
+//    std::cout << "meta_prefix: " << meta_prefix_ << " key: " << iter_->key().ToString() << " user_key: " << user_key << " user_key_: " << user_key_.ToString() << " meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
 
     if (user_key != user_key_) {
       user_key_ = user_key;
       DBNemoImpl::GetVersionAndTS(db_, meta_prefix_, iter_->key(), &version_, &timestamp_);
+//      std::cout << "Update Meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
     }
 
-    if (DBNemoImpl::IsStale(iter_->value(), ts, env_) || ver < version_) {
+    if (DBNemoImpl::IsStale(timestamp_, env_) || ver < version_) {
+      std::cout << "Is Died " << iter_->key().ToString() << std::endl;
       return false;
     } else {
+      std::cout << "Is Alive" << std::endl;
       return true;
     }
   }
@@ -304,7 +292,6 @@ class NemoCompactionFilter : public CompactionFilter {
       return true;
     }
 
-//    if (DBNemoImpl::SanityCheckTimestamp(old_val, env_).IsNotFound()) {
     if (ShouldDrop(key, old_val)) {
       return true;
     }
@@ -341,12 +328,12 @@ class NemoCompactionFilter : public CompactionFilter {
 
     std::string user_key;
     DBNemoImpl::ExtractUserKey(meta_prefix_, key, &user_key);
-    std::cout << "meta_prefix: " << meta_prefix_ << " user_key: " << key.ToString() << " user_key_: " << user_key_.ToString() << std::endl;
+    std::cout << "meta_prefix: " << meta_prefix_ << " key: " << key.ToString() << " user_key: " << user_key << " user_key_: " << user_key_.ToString() << " meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
 
     if (user_key != user_key_) {
       user_key_ = user_key;
       DBNemoImpl::GetVersionAndTS(db_, meta_prefix_, key, &version_, &timestamp_);
-      std::cout << "meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
+      std::cout << "Update meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
     }
     if (key[0] == kMetaPrefixHash ||
         key[0] == kMetaPrefixList || key[0] == kMetaPrefixZset ||
@@ -356,7 +343,7 @@ class NemoCompactionFilter : public CompactionFilter {
       }
       return false;
     }
-    if (DBNemoImpl::IsStale(old_val, ts, env_) || ver < version_) {
+    if (DBNemoImpl::IsStale(timestamp_, env_) || ver < version_) {
       std::cout << "should drop" << std::endl;
       return true;
     } else {

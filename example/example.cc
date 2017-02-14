@@ -39,7 +39,7 @@ int main() {
   rocksdb::Options options;
   options.create_if_missing = true;
 	options.merge_operator.reset(new StringMergeOperator());
-  rocksdb::Status s = rocksdb::DBNemo::Open(options, "./db", &db);
+  rocksdb::Status s = rocksdb::DBNemo::Open(options, "./db", &db, 'H');
 
 /*
  * 1. Test Put
@@ -94,7 +94,7 @@ int main() {
   }
 
   rocksdb::Iterator* iter = db->NewIterator(rocksdb::ReadOptions());
-  int times = 8
+  int times = 8;
   while (times--) {
     iter->SeekToFirst();
     std::cout << "---------------------------" << std::endl;
@@ -111,7 +111,7 @@ int main() {
 
 /*
  * 3. Test CompactFilter
- */
+ *
   {
   rocksdb::Options op = db->GetOptions(); 
   std::cout << op.compaction_filter_factory << std::endl;
@@ -170,6 +170,8 @@ int main() {
     }
   }
   }
+ *
+ */
 
 /*
  * 4. Test Merge
@@ -202,5 +204,94 @@ int main() {
  *
  */
 
+/*
+ * 5. Test MultiStructure Compaction
+ *
+  {
+  std::string meta_key = "H";
+  meta_key.append("abc");
+  s = db->Put(rocksdb::WriteOptions(), meta_key, "meta_value_1");
+  s = db->Put(rocksdb::WriteOptions(), meta_key, "meta_value_2");
+
+  std::string data_key = "h";
+  uint8_t len = 3;
+  data_key.append((char*)&len, 1);
+  data_key.append("abc_1");
+  s = db->Put(rocksdb::WriteOptions(), data_key, "data_value_1");
+
+  data_key = "h";
+  len = 3;
+  data_key.append((char*)&len, 1);
+  data_key.append("abc_2");
+  s = db->Put(rocksdb::WriteOptions(), data_key, "data_value_2");
+
+  s = db->CompactRange(rocksdb::CompactRangeOptions(), NULL, NULL);
+
+  }
+ *
+ */
+
+/*
+ * 6. Test MultiStructure Iterator
+ */
+  {
+  std::string meta_key = "H";
+  meta_key.append("abc");
+  s = db->Put(rocksdb::WriteOptions(), meta_key, "meta_value_1");
+  s = db->Put(rocksdb::WriteOptions(), meta_key, "meta_value_2", 3);
+
+  std::string data_key = "h";
+  uint8_t len = 3;
+  data_key.append((char*)&len, 1);
+  data_key.append("abc_1");
+  s = db->Put(rocksdb::WriteOptions(), data_key, "data_value_1");
+
+  data_key = "h";
+  len = 3;
+  data_key.append((char*)&len, 1);
+  data_key.append("abc_2");
+  s = db->Put(rocksdb::WriteOptions(), data_key, "data_value_2");
+
+  data_key = "h";
+  len = 3;
+  data_key.append((char*)&len, 1);
+  data_key.append("abc_3");
+  s = db->Put(rocksdb::WriteOptions(), data_key, "data_value_3");
+
+  data_key = "h";
+  len = 3;
+  data_key.append((char*)&len, 1);
+  data_key.append("abc_4");
+  s = db->Put(rocksdb::WriteOptions(), data_key, "data_value_4");
+
+  data_key = "h";
+  len = 3;
+  data_key.append((char*)&len, 1);
+  data_key.append("abc_5");
+  s = db->Put(rocksdb::WriteOptions(), data_key, "data_value_5");
+
+  data_key = "h";
+  len = 3;
+  data_key.append((char*)&len, 1);
+  data_key.append("abc_6");
+  s = db->Put(rocksdb::WriteOptions(), data_key, "data_value_6");
+
+  rocksdb::Iterator* iter = db->NewIterator(rocksdb::ReadOptions());
+  int times = 6;
+  while (times--) {
+    std::cout << "---------------------------" << std::endl;
+    iter->SeekToFirst();
+    while (iter->Valid()) {
+      std::cout << iter->key().ToString() << " " << iter->value().ToString() << " " << static_cast<rocksdb::NemoIterator*>(iter)->timestamp() << std::endl;
+      iter->Next();
+    }
+    std::cout << "---------------------------" << std::endl;
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+
+  s = db->CompactRange(rocksdb::CompactRangeOptions(), NULL, NULL);
+
+  }
+ 
 	delete db;
 }
