@@ -108,7 +108,7 @@ Status DBNemoImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
 // Returns corruption if the length of the string is lesser than timestamp
 // Returns NotFound if the encoded timestamp is lesser than current time
 Status DBNemoImpl::SanityCheckTimestamp(const Slice& str, Env* env) {
-  if (str.size() < kTSLength) {
+  if (str.size() < kVersionLength + kTSLength) {
     return Status::Corruption("Error: value's length less than timestamp's\n");
   }
 
@@ -250,6 +250,18 @@ Status DBNemoImpl::Merge(const WriteOptions& options,
   return Write(options, &batch);
 }
 
+Status DBNemoImpl::PutWithExpiredTime(const WriteOptions& options, const Slice& key, const Slice& val, int32_t expired_time) {
+  WriteBatch batch;
+  batch.Put(DefaultColumnFamily(), key, val);
+  return WriteWithExpiredTime(options, &batch, expired_time);
+}
+
+Status DBNemoImpl::PutWithKeyVersion(const WriteOptions& options, const Slice& key, const Slice& val) {
+  WriteBatch batch;
+  batch.Put(DefaultColumnFamily(), key, val);
+  return WriteWithKeyVersion(options, &batch);
+}
+
 Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
   return Write(opts, updates, 0);
 }
@@ -320,6 +332,271 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t 
   }
 }
 
+Status DBNemoImpl::WriteWithExpiredTime(const WriteOptions& opts, WriteBatch* updates, int32_t expired_time) {
+  class Handler : public WriteBatch::Handler {
+   public:
+    DBImpl* db_;
+    WriteBatch updates_ttl;
+    Status batch_rewrite_status;
+
+    explicit Handler(Env* env, DB* db, char meta_prefix, int32_t expired_time)
+        : db_(reinterpret_cast<DBImpl*>(db)), env_(env),
+          expired_time_(expired_time), meta_prefix_(meta_prefix) {}
+
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) override {
+      std::string value_with_ver_ts;
+      int32_t version;
+      int32_t timestamp;
+      GetVersionAndTS(db_, meta_prefix_, key, &version, &timestamp);
+
+      Status st = AppendVersionAndExpiredTime(value, &value_with_ver_ts,
+                      env_, version, expired_time_);
+      if (!st.ok()) {
+        batch_rewrite_status = st;
+      } else {
+        WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
+                                value_with_ver_ts);
+      }
+      return Status::OK();
+    }
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                           const Slice& value) override {
+      std::string value_with_ver_ts;
+      Status st = AppendVersionAndTS(value, &value_with_ver_ts,
+                      env_, 0, 0);
+      if (!st.ok()) {
+        batch_rewrite_status = st;
+      } else {
+        WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
+                                  value_with_ver_ts);
+      }
+      return Status::OK();
+    }
+    virtual Status DeleteCF(uint32_t column_family_id,
+                            const Slice& key) override {
+      WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
+      return Status::OK();
+    }
+    virtual void LogData(const Slice& blob) override {
+      updates_ttl.PutLogData(blob);
+    }
+
+   private:
+    Env* env_;
+    int32_t expired_time_;
+    char meta_prefix_;
+  };
+  //@ADD assign the db pointer
+  Handler handler(GetEnv(), db_, meta_prefix_, expired_time);
+
+  updates->Iterate(&handler);
+  if (!handler.batch_rewrite_status.ok()) {
+    return handler.batch_rewrite_status;
+  } else {
+    return db_->Write(opts, &(handler.updates_ttl));
+  }
+}
+
+Status DBNemoImpl::WriteWithKeyVersion(const WriteOptions& opts, WriteBatch* updates) {
+  class Handler : public WriteBatch::Handler {
+   public:
+    DBImpl* db_;
+    WriteBatch updates_ttl;
+    Status batch_rewrite_status;
+
+    explicit Handler(Env* env, DB* db, char meta_prefix)
+        : db_(reinterpret_cast<DBImpl*>(db)), env_(env),
+          meta_prefix_(meta_prefix) {}
+
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) override {
+      std::string value_with_ver_ts;
+      int32_t version;
+      int32_t timestamp;
+      GetVersionAndTS(db_, meta_prefix_, key, &version, &timestamp);
+
+      Status st = AppendVersionAndTS(value, &value_with_ver_ts,
+                      env_, version + 1, 0);
+      if (!st.ok()) {
+        batch_rewrite_status = st;
+      } else {
+        WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
+                                value_with_ver_ts);
+      }
+      return Status::OK();
+    }
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                           const Slice& value) override {
+      std::string value_with_ver_ts;
+      Status st = AppendVersionAndTS(value, &value_with_ver_ts,
+                      env_, 0, 0);
+      if (!st.ok()) {
+        batch_rewrite_status = st;
+      } else {
+        WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
+                                  value_with_ver_ts);
+      }
+      return Status::OK();
+    }
+    virtual Status DeleteCF(uint32_t column_family_id,
+                            const Slice& key) override {
+      WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
+      return Status::OK();
+    }
+    virtual void LogData(const Slice& blob) override {
+      updates_ttl.PutLogData(blob);
+    }
+
+   private:
+    Env* env_;
+    char meta_prefix_;
+  };
+  //@ADD assign the db pointer
+  Handler handler(GetEnv(), db_, meta_prefix_);
+
+  updates->Iterate(&handler);
+  if (!handler.batch_rewrite_status.ok()) {
+    return handler.batch_rewrite_status;
+  } else {
+    return db_->Write(opts, &(handler.updates_ttl));
+  }
+}
+
+Status DBNemoImpl::WriteWithOldKeyTTL(const WriteOptions& opts, WriteBatch* updates) {
+  class Handler : public WriteBatch::Handler {
+   public:
+    DBImpl* db_;
+    WriteBatch updates_ttl;
+    Status batch_rewrite_status;
+
+    explicit Handler(Env* env, DB* db, char meta_prefix)
+        : db_(reinterpret_cast<DBImpl*>(db)), env_(env),
+          meta_prefix_(meta_prefix) {}
+
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) override {
+      std::string value_with_ver_ts;
+      int32_t version;
+      int32_t timestamp;
+      GetVersionAndTS(db_, meta_prefix_, key, &version, &timestamp);
+
+      int64_t curtime;
+      if (env_->GetCurrentTime(&curtime).ok()) {
+          if (timestamp != 0 && timestamp < curtime) {
+              version++;
+              timestamp = 0;
+          }
+      } else {
+          timestamp = 0;
+      }
+
+      Status st = AppendVersionAndTS(value, &value_with_ver_ts,
+                      env_, version, timestamp + 1);
+      if (!st.ok()) {
+        batch_rewrite_status = st;
+      } else {
+        WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
+                                value_with_ver_ts);
+      }
+      return Status::OK();
+    }
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                           const Slice& value) override {
+      std::string value_with_ver_ts;
+      Status st = AppendVersionAndTS(value, &value_with_ver_ts,
+                      env_, 0, 0);
+      if (!st.ok()) {
+        batch_rewrite_status = st;
+      } else {
+        WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
+                                  value_with_ver_ts);
+      }
+      return Status::OK();
+    }
+    virtual Status DeleteCF(uint32_t column_family_id,
+                            const Slice& key) override {
+      WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
+      return Status::OK();
+    }
+    virtual void LogData(const Slice& blob) override {
+      updates_ttl.PutLogData(blob);
+    }
+
+   private:
+    Env* env_;
+    char meta_prefix_;
+  };
+  //@ADD assign the db pointer
+  Handler handler(GetEnv(), db_, meta_prefix_);
+
+  updates->Iterate(&handler);
+  if (!handler.batch_rewrite_status.ok()) {
+    return handler.batch_rewrite_status;
+  } else {
+    return db_->Write(opts, &(handler.updates_ttl));
+  }
+}
+
+Status DBNemoImpl::GetKeyTTL(const ReadOptions& options, const Slice& key, int32_t *ttl) {
+
+    std::string value;
+    Status st = db_->Get(options, DefaultColumnFamily(), key, &value);
+    if (!st.ok()) {
+        return st;
+    }
+
+    int32_t version;
+    int32_t timestamp;
+    int64_t curtime;
+
+    st = ExtractVersionAndTS(value, &version, &timestamp);
+    if (!st.ok()) {
+      *ttl = -1;
+      return st;
+    }
+
+    if (key[0] == kMetaPrefixKv) {
+      if (timestamp == 0) {
+        *ttl = -1;
+        return Status::OK();
+      }
+      if (!GetEnv()->GetCurrentTime(&curtime).ok()) {
+        *ttl = -1;
+        return Status::OK();
+      }
+      if (curtime -1 > timestamp) {
+        *ttl = -2;
+        return Status::NotFound("Is Stale");
+      } else {
+        *ttl = timestamp - curtime + 1 > 0 ? timestamp - curtime + 1 : 0;
+      }
+      return Status::OK();
+    }
+
+    st = SanityCheckVersionAndTS(key, value);
+    if (st.ok()) {
+      if (timestamp == 0) {
+        *ttl = -1;
+        return Status::OK();
+      }
+      if (!GetEnv()->GetCurrentTime(&curtime).ok()) {
+        *ttl = -1;
+        return Status::OK();
+      }
+      if (curtime -1 > timestamp) {
+        *ttl = -2;
+        return Status::NotFound("Is Stale");
+      } else {
+        *ttl = timestamp - curtime + 1 > 0 ? timestamp - curtime + 1 : 0;
+      }
+      return Status::OK();
+    } else {
+      *ttl = -2;
+    }
+    return st;
+}
+
 Iterator* DBNemoImpl::NewIterator(const ReadOptions& opts,
                                      ColumnFamilyHandle* column_family) {
   return new NemoIterator(db_->NewIterator(opts, column_family), db_->GetEnv(), db_, meta_prefix_);
@@ -365,6 +642,23 @@ Status DBNemoImpl::AppendVersionAndTS(const Slice& val,
     }
     EncodeFixed32(ts_string, (int32_t)(curtime+ttl-1));
   }
+  val_with_ver_ts->append(ts_string, kTSLength);
+
+  return Status::OK(); 
+}
+
+Status DBNemoImpl::AppendVersionAndExpiredTime(const Slice& val, 
+    std::string* val_with_ver_ts, Env* env, int32_t version, int32_t expire_time) {
+
+  val_with_ver_ts->reserve(kVersionLength + kTSLength + val.size());
+  val_with_ver_ts->append(val.data(), val.size());
+
+  char ver_string[kVersionLength];
+  EncodeFixed32(ver_string, (int32_t)version);
+  val_with_ver_ts->append(ver_string, kVersionLength);
+
+  char ts_string[kTSLength];
+  EncodeFixed32(ts_string, (int32_t)(expire_time-1));
   val_with_ver_ts->append(ts_string, kTSLength);
 
   return Status::OK(); 

@@ -43,17 +43,19 @@ int main() {
 
 /*
  * 1. Test Put
- *
+ */
   {
-  s = db->Put(rocksdb::WriteOptions(), "key", "value", 3);
+  s = db->Put(rocksdb::WriteOptions(), "key_1", "value_1", 3);
+  s = db->Put(rocksdb::WriteOptions(), "key_2", "value_2");
   if (!s.ok()) {
     std::cout << "Put Error: " << s.ToString() << std::endl;
   }
 
   std::string value;
   int times = 5;
+  int32_t ttl;
   while (times--) {
-    s = db->Get(rocksdb::ReadOptions(), "key", &value);
+    s = db->Get(rocksdb::ReadOptions(), "key_1", &value);
     if (s.ok()) {
       std::cout << "Get value: " << value << std::endl;
     } else if (s.IsNotFound()) {
@@ -61,12 +63,25 @@ int main() {
     } else {
       std::cout << "Get Error: " << s.ToString() << std::endl;
     }
+    s = db->GetKeyTTL(rocksdb::ReadOptions(), "key_1", &ttl);
+    std::cout << "GetKeyTTL return: " << s.ToString() << " ttl: " << ttl << std::endl;
+
+    s = db->Get(rocksdb::ReadOptions(), "key_2", &value);
+    if (s.ok()) {
+      std::cout << "Get value: " << value << std::endl;
+    } else if (s.IsNotFound()) {
+      std::cout << "Get Nothing" << std::endl;
+    } else {
+      std::cout << "Get Error: " << s.ToString() << std::endl;
+    }
+    s = db->GetKeyTTL(rocksdb::ReadOptions(), "key_2", &ttl);
+    std::cout << "GetKeyTTL return: " << s.ToString() << " ttl: " << ttl << std::endl;
+    s = db->GetKeyTTL(rocksdb::ReadOptions(), "key_3", &ttl);
+    std::cout << "GetKeyTTL return: " << s.ToString() << " ttl: " << ttl << std::endl;
 //    std::this_thread::sleep_for(std::chrono::duration<int, std::ratio<1, 1> >(1));
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
   }
- *
- */
 
 /*
  * 2. Test Iterator
@@ -233,12 +248,11 @@ int main() {
 
 /*
  * 6. Test MultiStructure Iterator
- */
+ *
   {
-  std::string meta_key = "H";
-  meta_key.append("abc");
-  s = db->Put(rocksdb::WriteOptions(), meta_key, "meta_value_1");
-  s = db->Put(rocksdb::WriteOptions(), meta_key, "meta_value_2", 3);
+  s = db->Put(rocksdb::WriteOptions(), "Habc", "meta_value_1");
+  s = db->Put(rocksdb::WriteOptions(), "Habc", "meta_value_2", 3);
+
 
   std::string data_key = "h";
   uint8_t len = 3;
@@ -288,10 +302,84 @@ int main() {
     std::cout << "---------------------------" << std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
+  delete iter;
 
   s = db->CompactRange(rocksdb::CompactRangeOptions(), NULL, NULL);
 
   }
- 
+ *
+ */
+
+/*
+ * 7. Test PutWithKeyVersion;
+ *
+  {
+  s = db->Put(rocksdb::WriteOptions(), "Habc", "meta_value_1");
+
+  std::string data_key = "h";
+  uint8_t len = 3;
+  data_key.append((char*)&len, 1);
+  data_key.append("abc_1");
+  s = db->Put(rocksdb::WriteOptions(), data_key, "data_value_1");
+
+  rocksdb::Iterator* iter = db->NewIterator(rocksdb::ReadOptions());
+  std::cout << "---------------------------" << std::endl;
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    std::cout << iter->key().ToString() << " " << iter->value().ToString() << " " << static_cast<rocksdb::NemoIterator*>(iter)->timestamp() << std::endl;
+    iter->Next();
+  }
+  std::cout << "---------------------------" << std::endl;
+  delete iter;
+
+  s = db->PutWithKeyVersion(rocksdb::WriteOptions(), "Habc", "meta_value2");
+  iter = db->NewIterator(rocksdb::ReadOptions());
+  std::cout << "---------------------------" << std::endl;
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    std::cout << iter->key().ToString() << " " << iter->value().ToString() << " " << static_cast<rocksdb::NemoIterator*>(iter)->timestamp() << std::endl;
+    iter->Next();
+  }
+  std::cout << "---------------------------" << std::endl;
+  delete iter;
+  }
+ *
+ */
+
+/*
+ * 8. Test WriteWithOldKeyTTL
+ *
+  {
+  rocksdb::WriteBatch batch;
+  batch.Put("Habc", "meta_value_1");
+  s = db->Write(rocksdb::WriteOptions(), &batch, 3);
+  s = db->Put(rocksdb::WriteOptions(), "Habc", "meta_value_1", 2);
+
+  std::string data_key = "h";
+  uint8_t len = 3;
+  data_key.append((char*)&len, 1);
+  data_key.append("abc_1");
+  s = db->Put(rocksdb::WriteOptions(), data_key, "data_value_1");
+
+  rocksdb::Iterator* iter;
+  int times = 5;
+  while (times--) {
+    iter = db->NewIterator(rocksdb::ReadOptions());
+    std::cout << "---------------------------" << std::endl;
+    iter->SeekToFirst();
+    while (iter->Valid()) {
+      std::cout << iter->key().ToString() << " " << iter->value().ToString() << " " << static_cast<rocksdb::NemoIterator*>(iter)->timestamp() << std::endl;
+      iter->Next();
+    }
+    std::cout << "---------------------------" << std::endl;
+    if (times == 2) {
+      s = db->WriteWithOldKeyTTL(rocksdb::WriteOptions(), &batch);
+    }
+    delete iter;
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+  }
+ *
+ */
 	delete db;
 }

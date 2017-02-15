@@ -37,6 +37,13 @@ class DBNemo: public StackableDB {
   using StackableDB::Write;
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates, int32_t ttl) = 0;
 
+  virtual Status PutWithExpiredTime(const WriteOptions& options, const Slice& key, const Slice& val, int32_t expired_time) = 0;
+  virtual Status WriteWithExpiredTime(const WriteOptions& opts, WriteBatch* updates, int32_t expired_time) = 0;
+  virtual Status PutWithKeyVersion(const WriteOptions& options, const Slice& key, const Slice& val) = 0;
+  virtual Status WriteWithKeyVersion(const WriteOptions& opts, WriteBatch* updates) = 0;
+  virtual Status WriteWithOldKeyTTL(const WriteOptions& opts, WriteBatch* updates) = 0;
+  virtual Status GetKeyTTL(const ReadOptions& options, const Slice& key, int32_t *ttl) = 0;
+
  protected:
   explicit DBNemo(DB* db) : StackableDB(db) {}
 };

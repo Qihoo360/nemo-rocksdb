@@ -90,6 +90,24 @@ class DBNemoImpl : public DBNemo {
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates,
                        int32_t ttl) override;
 
+  using DBNemo::PutWithExpiredTime;
+  virtual Status PutWithExpiredTime(const WriteOptions& options, const Slice& key, const Slice& val, int32_t expired_time) override;
+
+  using DBNemo::WriteWithExpiredTime;
+  virtual Status WriteWithExpiredTime(const WriteOptions& opts, WriteBatch* updates, int32_t expired_time) override;
+
+  using DBNemo::PutWithKeyVersion;
+  virtual Status PutWithKeyVersion(const WriteOptions& options, const Slice& key, const Slice& val) override;
+
+  using DBNemo::WriteWithKeyVersion;
+  virtual Status WriteWithKeyVersion(const WriteOptions& opts, WriteBatch* updates) override;
+
+  using DBNemo::WriteWithOldKeyTTL;
+  virtual Status WriteWithOldKeyTTL(const WriteOptions& opts, WriteBatch* updates) override;
+
+  using DBNemo::GetKeyTTL;
+  virtual Status GetKeyTTL(const ReadOptions& options, const Slice& key, int32_t *ttl) override;
+
   using StackableDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& opts,
                                 ColumnFamilyHandle* column_family) override;
@@ -106,6 +124,9 @@ class DBNemoImpl : public DBNemo {
 
   static Status AppendVersionAndTS(const Slice& val, std::string* val_with_ver_ts,
                                    Env* env, int32_t version, int32_t ttl);
+
+  static Status AppendVersionAndExpiredTime(const Slice& val, std::string* val_with_ver_ts,
+                                   Env* env, int32_t version, int32_t expire_time);
 
   Status SanityCheckVersionAndTS(const Slice& key, const Slice& val);
 
@@ -237,16 +258,16 @@ class NemoIterator : public Iterator {
     if (!s.ok()) {
       return false;
     }
-//    std::cout << "old_version: " << ver << " old_TS: " << ts << std::endl;
+    std::cout << "old_version: " << ver << " old_TS: " << ts << std::endl;
 
     std::string user_key;
     DBNemoImpl::ExtractUserKey(meta_prefix_, iter_->key(), &user_key);
-//    std::cout << "meta_prefix: " << meta_prefix_ << " key: " << iter_->key().ToString() << " user_key: " << user_key << " user_key_: " << user_key_.ToString() << " meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
+    std::cout << "meta_prefix: " << meta_prefix_ << " key: " << iter_->key().ToString() << " user_key: " << user_key << " user_key_: " << user_key_.ToString() << " meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
 
     if (user_key != user_key_) {
       user_key_ = user_key;
       DBNemoImpl::GetVersionAndTS(db_, meta_prefix_, iter_->key(), &version_, &timestamp_);
-//      std::cout << "Update Meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
+      std::cout << "Update Meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
     }
 
     if (DBNemoImpl::IsStale(timestamp_, env_) || ver < version_) {
