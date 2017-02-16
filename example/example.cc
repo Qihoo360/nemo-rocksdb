@@ -1,4 +1,5 @@
 #include "db_nemo_impl.h"
+#include "db_nemo_checkpoint.h"
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -43,7 +44,7 @@ int main() {
 
 /*
  * 1. Test Put
- */
+ *
   {
   s = db->Put(rocksdb::WriteOptions(), "key_1", "value_1", 3);
   s = db->Put(rocksdb::WriteOptions(), "key_2", "value_2");
@@ -82,6 +83,8 @@ int main() {
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
   }
+ *
+ */
 
 /*
  * 2. Test Iterator
@@ -381,5 +384,58 @@ int main() {
   }
  *
  */
+
+/*
+ * 9. Test Checkpoint
+ */
+  {
+  s = db->Put(rocksdb::WriteOptions(), "Habc", "meta_value_1");
+  s = db->Put(rocksdb::WriteOptions(), "Hefg", "meta_value_2", 3);
+  
+  rocksdb::DBNemoCheckpoint* cp;
+  rocksdb::DBNemoCheckpoint::Create(db, &cp);
+  s = cp->CreateCheckpoint("./tmp");
+  delete cp;
+  std::cout << "CreateCheckpoint return: " << s.ToString() << std::endl;
+
+  rocksdb::DBNemo *tdb;
+  rocksdb::Options options;
+  options.create_if_missing = true;
+	options.merge_operator.reset(new StringMergeOperator());
+  rocksdb::Status s = rocksdb::DBNemo::Open(options, "./tmp", &tdb, 'H');
+  std::cout << "open Checkpoint db, return: " << s.ToString() << std::endl;
+  std::cout << "Switch to Checkpoint db" << std::endl;
+
+  int times = 5;
+  int32_t ttl = 0;
+  std::string value;
+  while (times--) {
+    s = tdb->Get(rocksdb::ReadOptions(), "Habc", &value);
+    if (s.ok()) {
+      std::cout << "Get value: " << value << std::endl;
+    } else if (s.IsNotFound()) {
+      std::cout << "Get Nothing" << std::endl;
+    } else {
+      std::cout << "Get Error: " << s.ToString() << std::endl;
+    }
+    s = tdb->GetKeyTTL(rocksdb::ReadOptions(), "Habc", &ttl);
+    std::cout << "GetKeyTTL return: " << s.ToString() << " ttl: " << ttl << std::endl;
+
+    s = tdb->Get(rocksdb::ReadOptions(), "Hefg", &value);
+    if (s.ok()) {
+      std::cout << "Get value: " << value << std::endl;
+    } else if (s.IsNotFound()) {
+      std::cout << "Get Nothing" << std::endl;
+    } else {
+      std::cout << "Get Error: " << s.ToString() << std::endl;
+    }
+    s = tdb->GetKeyTTL(rocksdb::ReadOptions(), "Hefg", &ttl);
+    std::cout << "GetKeyTTL return: " << s.ToString() << " ttl: " << ttl << std::endl;
+//    std::this_thread::sleep_for(std::chrono::duration<int, std::ratio<1, 1> >(1));
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+  delete tdb;
+  
+  }
 	delete db;
 }

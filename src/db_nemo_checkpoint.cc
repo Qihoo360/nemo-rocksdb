@@ -73,7 +73,7 @@ Status DBNemoCheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir)
   uint64_t manifest_file_size, sequence_number;
   Status s = GetCheckpointFiles(live_files, live_wal_files, manifest_file_size, sequence_number);
   if (s.ok()) {
-    s = CreateCheckpointWithFiles(checkpoint_dir, live_files, live_wal_files, sequence_number, sequence_number);
+    s = CreateCheckpointWithFiles(checkpoint_dir, live_files, live_wal_files, manifest_file_size, sequence_number);
   }
   return s;
 }
@@ -89,8 +89,6 @@ Status DBNemoCheckpointImpl::GetCheckpointFiles(std::vector<std::string> &live_f
   if (s.ok()) {
     // this will return live_files prefixed with "/"
     s = db_->GetLiveFiles(live_files, &manifest_file_size);
-    TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
-    TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
   }
 
   // if we have more than one column family, we need to also get WAL files
