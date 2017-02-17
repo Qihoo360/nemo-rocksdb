@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include <iostream>
+//#include <iostream>
 
 #include "db_nemo.h"
 
@@ -248,38 +248,38 @@ class NemoIterator : public Iterator {
 
     int32_t ver;
     int32_t ts;
-    std::cout << "---------------------------------------------" << std::endl;
+//    std::cout << "---------------------------------------------" << std::endl;
     Status s = DBNemoImpl::ExtractVersionAndTS(iter_->value(), &ver, &ts);
     if (!s.ok()) {
       return false;
     }
-    std::cout << "old_version: " << ver << " old_TS: " << ts << std::endl;
+//    std::cout << "old_version: " << ver << " old_TS: " << ts << std::endl;
 
     if ((iter_->key())[0] == kMetaPrefixKv) {
       if (DBNemoImpl::IsStale(ts, env_)) {
-        std::cout << "Is Died " << iter_->key().ToString() << std::endl;
+//        std::cout << "Is Died " << iter_->key().ToString() << std::endl;
         return false;
       } else {
-        std::cout << "Is Alive" << std::endl;
+//        std::cout << "Is Alive" << std::endl;
         return true;
       }
     }
 
     std::string user_key;
     DBNemoImpl::ExtractUserKey(meta_prefix_, iter_->key(), &user_key);
-    std::cout << "meta_prefix: " << meta_prefix_ << " key: " << iter_->key().ToString() << " user_key: " << user_key << " user_key_: " << user_key_.ToString() << " meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
+//    std::cout << "meta_prefix: " << meta_prefix_ << " key: " << iter_->key().ToString() << " user_key: " << user_key << " user_key_: " << user_key_.ToString() << " meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
 
     if (user_key != user_key_) {
       user_key_ = user_key;
       DBNemoImpl::GetVersionAndTS(db_, meta_prefix_, iter_->key(), &version_, &timestamp_);
-      std::cout << "Update Meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
+//      std::cout << "Update Meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
     }
 
     if (DBNemoImpl::IsStale(timestamp_, env_) || ver < version_) {
-      std::cout << "Is Died " << iter_->key().ToString() << std::endl;
+//      std::cout << "Is Died " << iter_->key().ToString() << std::endl;
       return false;
     } else {
-      std::cout << "Is Alive" << std::endl;
+//      std::cout << "Is Alive" << std::endl;
       return true;
     }
   }
@@ -346,31 +346,31 @@ class NemoCompactionFilter : public CompactionFilter {
 
     int32_t ver;
     int32_t ts;
-    std::cout << "---------------------------------------------" << std::endl;
+//    std::cout << "---------------------------------------------" << std::endl;
     Status s = DBNemoImpl::ExtractVersionAndTS(old_val, &ver, &ts);
     if (!s.ok()) {
       return true;
     }
-    std::cout << "old_version: " << ver << " old_TS: " << ts << std::endl;
+//    std::cout << "old_version: " << ver << " old_TS: " << ts << std::endl;
 
     if (key[0] == kMetaPrefixKv) {
       if (DBNemoImpl::IsStale(ts, env_)) {
-        std::cout << "Should Drop " << key.ToString() << std::endl;
+//        std::cout << "Should Drop " << key.ToString() << std::endl;
         return true;
       } else {
-        std::cout << "Should Reserve" << std::endl;
+//        std::cout << "Should Reserve" << std::endl;
         return false;
       }
     }
 
     std::string user_key;
     DBNemoImpl::ExtractUserKey(meta_prefix_, key, &user_key);
-    std::cout << "meta_prefix: " << meta_prefix_ << " key: " << key.ToString() << " user_key: " << user_key << " user_key_: " << user_key_.ToString() << " meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
+//    std::cout << "meta_prefix: " << meta_prefix_ << " key: " << key.ToString() << " user_key: " << user_key << " user_key_: " << user_key_.ToString() << " meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
 
     if (user_key != user_key_) {
       user_key_ = user_key;
       DBNemoImpl::GetVersionAndTS(db_, meta_prefix_, key, &version_, &timestamp_);
-      std::cout << "Update meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
+//      std::cout << "Update meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
     }
 
     if (key[0] == meta_prefix_) {
@@ -378,10 +378,10 @@ class NemoCompactionFilter : public CompactionFilter {
     }
 
     if (ver < version_ || DBNemoImpl::IsStale(timestamp_, env_)) {
-      std::cout << "should drop" << std::endl;
+//      std::cout << "should drop" << std::endl;
       return true;
     } else {
-      std::cout << "shouldn't drop" << std::endl;
+//      std::cout << "shouldn't drop" << std::endl;
       return false;
     }
   }

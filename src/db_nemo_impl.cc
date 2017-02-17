@@ -132,10 +132,6 @@ bool DBNemoImpl::IsStale(int32_t timestamp, Env* env) {
   if (!env->GetCurrentTime(&curtime).ok()) {
     return false;  // Treat the data as fresh if could not get current time
   }
-//  int32_t timestamp_value =
-//      DecodeFixed32(value.data() + value.size() - kTSLength);
-//  std::cout << "timestamp_value: " << timestamp_value << " curtime: " << curtime << std::endl; 
-//  return (timestamp_value) < curtime;
   return timestamp < curtime;
 }
 

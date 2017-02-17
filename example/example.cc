@@ -393,8 +393,18 @@ int main() {
   s = db->Put(rocksdb::WriteOptions(), "Hefg", "meta_value_2", 3);
   
   rocksdb::DBNemoCheckpoint* cp;
+  std::vector<std::string> live_files;
+  rocksdb::VectorLogPtr live_wal_files;
+  uint64_t manifest_file_size;
+  uint64_t sequence_number;
+
   rocksdb::DBNemoCheckpoint::Create(db, &cp);
-  s = cp->CreateCheckpoint("./tmp");
+  s = cp->GetCheckpointFiles(live_files, live_wal_files,
+      manifest_file_size, sequence_number);
+  s = cp->CreateCheckpointWithFiles("./tmp", live_files, live_wal_files,
+      manifest_file_size, sequence_number);
+
+//  s = cp->CreateCheckpoint("./tmp");
   delete cp;
   std::cout << "CreateCheckpoint return: " << s.ToString() << std::endl;
 
