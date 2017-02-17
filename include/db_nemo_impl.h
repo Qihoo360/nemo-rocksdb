@@ -248,7 +248,7 @@ class NemoIterator : public Iterator {
 
     int32_t ver;
     int32_t ts;
-//    std::cout << "---------------------------------------------" << std::endl;
+//    std::cout << "---Iterator------------------------------------------" << std::endl;
     Status s = DBNemoImpl::ExtractVersionAndTS(iter_->value(), &ver, &ts);
     if (!s.ok()) {
       return false;
@@ -346,7 +346,7 @@ class NemoCompactionFilter : public CompactionFilter {
 
     int32_t ver;
     int32_t ts;
-//    std::cout << "---------------------------------------------" << std::endl;
+//    std::cout << "---Filter------------------------------------------" << std::endl;
     Status s = DBNemoImpl::ExtractVersionAndTS(old_val, &ver, &ts);
     if (!s.ok()) {
       return true;
