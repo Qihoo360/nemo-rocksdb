@@ -165,30 +165,30 @@ void DBNemoImpl::ExtractUserKey(char meta_prefix, const Slice& key, std::string*
 
 // Strips the TS from the end of the string
 Status DBNemoImpl::StripTS(std::string* str) {
-Status st;
-if (str->length() < kTSLength) {
-  return Status::Corruption("Bad timestamp in key-value");
-}
-// Erasing characters which hold the TS
-str->erase(str->length() - kTSLength, kTSLength);
-return st;
+  Status st;
+  if (str->length() < kTSLength) {
+    return Status::Corruption("Bad timestamp in key-value");
+  }
+  // Erasing characters which hold the TS
+  str->erase(str->length() - kTSLength, kTSLength);
+  return st;
 }
 
 // Strips the Version and TS from the end of the string
 Status DBNemoImpl::StripVersionAndTS(std::string* str) {
-Status st;
-if (str->length() < kVersionLength + kTSLength) {
-  return Status::Corruption("Bad version-timestamp in key-value");
-}
-// Erasing characters which hold the TS
-str->erase(str->length() - kVersionLength - kTSLength, kVersionLength + kTSLength);
-return st;
+  Status st;
+  if (str->length() < kVersionLength + kTSLength) {
+    return Status::Corruption("Bad version-timestamp in key-value");
+  }
+  // Erasing characters which hold the TS
+  str->erase(str->length() - kVersionLength - kTSLength, kVersionLength + kTSLength);
+  return st;
 }
 
 Status DBNemoImpl::Put(const WriteOptions& options,
-                        ColumnFamilyHandle* column_family, const Slice& key,
-                        const Slice& val) {
-return Put(options, column_family, key, val, 0);
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const Slice& val) {
+  return Put(options, column_family, key, val, 0);
 }
 
 Status DBNemoImpl::Put(const WriteOptions& options, ColumnFamilyHandle* column_family, const Slice& key, const Slice& val, int32_t ttl) {
@@ -198,8 +198,8 @@ Status DBNemoImpl::Put(const WriteOptions& options, ColumnFamilyHandle* column_f
 }
 
 Status DBNemoImpl::Get(const ReadOptions& options,
-                          ColumnFamilyHandle* column_family, const Slice& key,
-                          std::string* value) {
+    ColumnFamilyHandle* column_family, const Slice& key,
+    std::string* value) {
   Status st = db_->Get(options, column_family, key, value);
   if (!st.ok()) {
     return st;
@@ -230,9 +230,9 @@ std::vector<Status> DBNemoImpl::MultiGet(
 }
 
 bool DBNemoImpl::KeyMayExist(const ReadOptions& options,
-                                ColumnFamilyHandle* column_family,
-                                const Slice& key, std::string* value,
-                                bool* value_found) {
+    ColumnFamilyHandle* column_family,
+    const Slice& key, std::string* value,
+    bool* value_found) {
   bool ret = db_->KeyMayExist(options, column_family, key, value, value_found);
   if (ret && value != nullptr && value_found != nullptr && *value_found) {
     if (!SanityCheckTimestamp(*value, db_->GetEnv()).ok() || !StripTS(value).ok()) {
@@ -243,8 +243,8 @@ bool DBNemoImpl::KeyMayExist(const ReadOptions& options,
 }
 
 Status DBNemoImpl::Merge(const WriteOptions& options,
-                            ColumnFamilyHandle* column_family, const Slice& key,
-                            const Slice& value) {
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const Slice& value) {
   WriteBatch batch;
   batch.Merge(column_family, key, value);
   return Write(options, &batch);
@@ -600,25 +600,6 @@ Status DBNemoImpl::GetKeyTTL(const ReadOptions& options, const Slice& key, int32
 Iterator* DBNemoImpl::NewIterator(const ReadOptions& opts,
                                      ColumnFamilyHandle* column_family) {
   return new NemoIterator(db_->NewIterator(opts, column_family), db_->GetEnv(), db_, meta_prefix_);
-}
-
-Status DBNemoImpl::AppendTS(const Slice& val, std::string* val_with_ts,
-                               Env* env, int32_t ttl) {
-  val_with_ts->reserve(kTSLength + val.size());
-  char ts_string[kTSLength];
-  if (ttl <= 0) {
-    EncodeFixed32(ts_string, 0);
-  } else {
-    int64_t curtime;
-    Status st = env->GetCurrentTime(&curtime);
-    if (!st.ok()) {
-      return st;
-    }
-    EncodeFixed32(ts_string, (int32_t)(curtime+ttl-1));
-  }
-  val_with_ts->append(val.data(), val.size());
-  val_with_ts->append(ts_string, kTSLength);
-  return Status::OK();
 }
 
 Status DBNemoImpl::AppendVersionAndTS(const Slice& val, 
