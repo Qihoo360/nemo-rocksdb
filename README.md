@@ -2,6 +2,9 @@
 
 nemo-rocksdb is compatible with rocksdb, and I added TTL feature on it, supporting to put a record with any specified TTL. The performance is close to rocksdb, so you can use it without worring about performance penalty. It uses rocksdb as a submodule, so it's easy to upgrade rocksdb to the latest version if needed, now it's using rocksdb(v5.0.1). Besides, it is going to be used in [Nemo](https://github.com/Qihoo360/nemo) as a submodule.
 
+# Notice!!!
+Please **DO NOT!!!** use **master** branch directly in your project，cause we add some **non-universal** features on that required by [Nemo](https://github.com/Qihoo360/nemo) and you may not need, checkout and use **Tags or [public-release](https://github.com/KernelMaker/nemo-rocksdb/tree/public-release)** branch instead, that is PURE and COMPATIBLE!
+
 # Features
 ## TTL
   DBNemo is derived from rocksdb::StackableDB, so it is compatible with rocksdb, you can use all the methods of rocksdb as usual, such as
