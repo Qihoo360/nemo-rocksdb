@@ -312,7 +312,7 @@ class NemoCompactionFilter : public CompactionFilter {
       override {
     assert(old_val.size() >= DBNemoImpl::kTSLength);
     Slice old_val_without_ts(old_val.data(),
-                             old_val.size() - DBNemoImpl::KVersionLength -
+                             old_val.size() - DBNemoImpl::kVersionLength -
                              DBNemoImpl::kTSLength);
     if (user_comp_filter_ != nullptr && user_comp_filter_->Filter(level,
           key, old_val_without_ts, new_val, value_changed)) {
