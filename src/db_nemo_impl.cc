@@ -569,7 +569,7 @@ Status DBNemoImpl::GetKeyTTL(const ReadOptions& options, const Slice& key, int32
       return st;
     }
 
-    if (key[0] == kMetaPrefixKv) {
+    if (meta_prefix_ == kMetaPrefixKv) {
       if (timestamp == 0) {
         *ttl = -1;
         return Status::OK();

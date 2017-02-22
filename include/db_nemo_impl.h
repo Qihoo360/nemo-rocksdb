@@ -154,7 +154,7 @@ class NemoIterator : public Iterator {
                         char meta_prefix)
     : iter_(iter), env_(env),
       db_(db), meta_prefix_(meta_prefix),
-      user_key_(nullptr, 0), version_(0),
+      version_(0),
       timestamp_(0) { assert(iter_); }
 
   ~NemoIterator() { delete iter_; }
@@ -240,7 +240,7 @@ class NemoIterator : public Iterator {
   Env* env_;
   DB* db_;
   char meta_prefix_;
-  Slice user_key_;
+  std::string user_key_;
   int32_t version_;
   int32_t timestamp_;
   
@@ -255,7 +255,7 @@ class NemoIterator : public Iterator {
     }
 //    std::cout << "old_version: " << ver << " old_TS: " << ts << std::endl;
 
-    if ((iter_->key())[0] == kMetaPrefixKv) {
+    if (meta_prefix_ == kMetaPrefixKv) {
       if (DBNemoImpl::IsStale(ts, env_)) {
 //        std::cout << "Is Died " << iter_->key().ToString() << std::endl;
         return false;
@@ -264,6 +264,17 @@ class NemoIterator : public Iterator {
         return true;
       }
     }
+
+    if ((iter_->key())[0] == meta_prefix_) {
+      if (*((int64_t*)iter_->value().data()) <= 0) {
+        return false;
+      }
+    }
+
+    if ((iter_->key().size() <= 1)) {
+      return false;
+    }
+
 
     std::string user_key;
     DBNemoImpl::ExtractUserKey(meta_prefix_, iter_->key(), &user_key);
@@ -296,7 +307,6 @@ class NemoCompactionFilter : public CompactionFilter {
         user_comp_filter_(user_comp_filter),
         db_(db),
         meta_prefix_(meta_prefix),
-        user_key_(nullptr, 0),
         version_(0), timestamp_(0),
         user_comp_filter_from_factory_(
             std::move(user_comp_filter_from_factory)) {
@@ -338,7 +348,7 @@ class NemoCompactionFilter : public CompactionFilter {
   const CompactionFilter* user_comp_filter_;
   DB* db_;
   char meta_prefix_;
-  mutable Slice user_key_;
+  mutable std::string user_key_;
   mutable int32_t version_;
   mutable int32_t timestamp_;
   std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory_;
@@ -353,7 +363,7 @@ class NemoCompactionFilter : public CompactionFilter {
     }
 //    std::cout << "old_version: " << ver << " old_TS: " << ts << std::endl;
 
-    if (key[0] == kMetaPrefixKv) {
+    if (meta_prefix_ == kMetaPrefixKv) {
       if (DBNemoImpl::IsStale(ts, env_)) {
 //        std::cout << "Should Drop " << key.ToString() << std::endl;
         return true;
@@ -363,18 +373,22 @@ class NemoCompactionFilter : public CompactionFilter {
       }
     }
 
+    if (key[0] == meta_prefix_) {
+        return false;
+    }
+
+    if ((key.size() <= 1)) {
+      return false;
+    }
+
     std::string user_key;
     DBNemoImpl::ExtractUserKey(meta_prefix_, key, &user_key);
-//    std::cout << "meta_prefix: " << meta_prefix_ << " key: " << key.ToString() << " user_key: " << user_key << " user_key_: " << user_key_.ToString() << " meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
+//    std::cout << "meta_prefix: " << meta_prefix_ << " key: " << key.ToString() << " user_key: " << user_key << " user_key_: " << user_key_ << " meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
 
     if (user_key != user_key_) {
       user_key_ = user_key;
       DBNemoImpl::GetVersionAndTS(db_, meta_prefix_, key, &version_, &timestamp_);
 //      std::cout << "Update meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
-    }
-
-    if (key[0] == meta_prefix_) {
-      return false;
     }
 
     if (ver < version_ || DBNemoImpl::IsStale(timestamp_, env_)) {
