@@ -3,7 +3,7 @@ OUTPUT = output
 
 ROCKSDB_PATH = ./rocksdb
 
-dummy_d := $(shell (make -C ./rocksdb static_lib))
+dummy_d := $(shell (make -j 24 -C ./rocksdb static_lib))
 include $(ROCKSDB_PATH)/make_config.mk
 CXXFLAGS = $(PLATFORM_CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -Wall -W -Wno-unused-parameter -g -O2 -D__STDC_FORMAT_MACROS 
 

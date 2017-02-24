@@ -1,4 +1,5 @@
 #include "db_nemo_impl.h"
+#include "db_nemo_checkpoint.h"
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -172,7 +173,7 @@ int main() {
 
 /*
  * Test Merge
- */
+ *
   {
   s = db->Put(rocksdb::WriteOptions(), "merge", "a", 3);
   if (!s.ok()) {
@@ -197,6 +198,67 @@ int main() {
     }
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
+  }
+ *
+ */
+
+/*
+ * Test Checkpoint
+ */
+  {
+  s = db->Put(rocksdb::WriteOptions(), "key_1", "value_1");
+  s = db->Put(rocksdb::WriteOptions(), "key_2", "value_2", 3);
+
+  rocksdb::DBNemoCheckpoint* cp;
+  std::vector<std::string> live_files;
+  rocksdb::VectorLogPtr live_wal_files;
+  uint64_t manifest_file_size;
+  uint64_t sequence_number;
+
+  rocksdb::DBNemoCheckpoint::Create(db, &cp);
+  s = cp->GetCheckpointFiles(live_files, live_wal_files,
+      manifest_file_size, sequence_number);
+  s = cp->CreateCheckpointWithFiles("./tmp", live_files, live_wal_files,
+      manifest_file_size, sequence_number);
+
+//  s = cp->CreateCheckpoint("./tmp");
+  delete cp;
+  std::cout << "CreateCheckpoint return: " << s.ToString() << std::endl;
+
+  rocksdb::DBNemo *tdb;
+  rocksdb::Options options;
+  options.create_if_missing = true;
+  options.merge_operator.reset(new StringMergeOperator());
+  rocksdb::Status s = rocksdb::DBNemo::Open(options, "./tmp", &tdb);
+  std::cout << "open Checkpoint db, return: " << s.ToString() << std::endl;
+  std::cout << "Switch to Checkpoint db" << std::endl;
+
+  int times = 5;
+  int32_t ttl = 0;
+  std::string value;
+  while (times--) {
+    s = tdb->Get(rocksdb::ReadOptions(), "key_1", &value);
+    if (s.ok()) {
+      std::cout << "Get key_1, value: " << value << std::endl;
+    } else if (s.IsNotFound()) {
+      std::cout << "Get key_1, Nothing" << std::endl;
+    } else {
+      std::cout << "Get key_1, Error: " << s.ToString() << std::endl;
+    }
+
+    s = tdb->Get(rocksdb::ReadOptions(), "key_2", &value);
+    if (s.ok()) {
+      std::cout << "Get key_2, value: " << value << std::endl;
+    } else if (s.IsNotFound()) {
+      std::cout << "Get key_2, Nothing" << std::endl;
+    } else {
+      std::cout << "Get key_2, Error: " << s.ToString() << std::endl;
+    }
+    //    std::this_thread::sleep_for(std::chrono::duration<int, std::ratio<1, 1> >(1));
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+
+  delete tdb;
   }
 
 	delete db;
