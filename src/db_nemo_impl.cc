@@ -135,7 +135,7 @@ bool DBNemoImpl::IsStale(int32_t timestamp, Env* env) {
   return timestamp < curtime;
 }
 
-Status DBNemoImpl::ExtractVersionAndTS(const Slice& value, int32_t* version, int32_t *timestamp) {
+Status DBNemoImpl::ExtractVersionAndTS(const Slice& value, uint32_t* version, int32_t *timestamp) {
   Status st;
   if (value.size() < kVersionLength + kTSLength) {
     return Status::Corruption("Bad version-timestamp in key-value");
@@ -276,7 +276,7 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t 
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
       std::string value_with_ver_ts;
-      int32_t version;
+      uint32_t version;
       int32_t timestamp;
       GetVersionAndTS(db_, meta_prefix_, key, &version, &timestamp);
 
@@ -344,7 +344,7 @@ Status DBNemoImpl::WriteWithExpiredTime(const WriteOptions& opts, WriteBatch* up
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
       std::string value_with_ver_ts;
-      int32_t version;
+      uint32_t version;
       int32_t timestamp;
       GetVersionAndTS(db_, meta_prefix_, key, &version, &timestamp);
 
@@ -412,7 +412,7 @@ Status DBNemoImpl::WriteWithKeyVersion(const WriteOptions& opts, WriteBatch* upd
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
       std::string value_with_ver_ts;
-      int32_t version;
+      uint32_t version;
       int32_t timestamp;
       GetVersionAndTS(db_, meta_prefix_, key, &version, &timestamp);
 
@@ -479,7 +479,7 @@ Status DBNemoImpl::WriteWithOldKeyTTL(const WriteOptions& opts, WriteBatch* upda
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
       std::string value_with_ver_ts;
-      int32_t version;
+      uint32_t version;
       int32_t timestamp;
       GetVersionAndTS(db_, meta_prefix_, key, &version, &timestamp);
 //      if (key[0] == kMetaPrefixHash) {
@@ -559,7 +559,7 @@ Status DBNemoImpl::GetKeyTTL(const ReadOptions& options, const Slice& key, int32
         return st;
     }
 
-    int32_t version;
+    uint32_t version;
     int32_t timestamp;
     int64_t curtime;
 
@@ -616,13 +616,13 @@ Iterator* DBNemoImpl::NewIterator(const ReadOptions& opts,
 }
 
 Status DBNemoImpl::AppendVersionAndTS(const Slice& val, 
-    std::string* val_with_ver_ts, Env* env, int32_t version, int32_t ttl) {
+    std::string* val_with_ver_ts, Env* env, uint32_t version, int32_t ttl) {
 
   val_with_ver_ts->reserve(kVersionLength + kTSLength + val.size());
   val_with_ver_ts->append(val.data(), val.size());
 
   char ver_string[kVersionLength];
-  EncodeFixed32(ver_string, (int32_t)version);
+  EncodeFixed32(ver_string, version);
   val_with_ver_ts->append(ver_string, kVersionLength);
 
   char ts_string[kTSLength];
@@ -642,13 +642,13 @@ Status DBNemoImpl::AppendVersionAndTS(const Slice& val,
 }
 
 Status DBNemoImpl::AppendVersionAndExpiredTime(const Slice& val, 
-    std::string* val_with_ver_ts, Env* env, int32_t version, int32_t expire_time) {
+    std::string* val_with_ver_ts, Env* env, uint32_t version, int32_t expire_time) {
 
   val_with_ver_ts->reserve(kVersionLength + kTSLength + val.size());
   val_with_ver_ts->append(val.data(), val.size());
 
   char ver_string[kVersionLength];
-  EncodeFixed32(ver_string, (int32_t)version);
+  EncodeFixed32(ver_string, version);
   val_with_ver_ts->append(ver_string, kVersionLength);
 
   char ts_string[kTSLength];
@@ -659,7 +659,7 @@ Status DBNemoImpl::AppendVersionAndExpiredTime(const Slice& val,
 }
 
 void DBNemoImpl::GetVersionAndTS(DB* db, char meta_prefix,
-      const Slice& key, int32_t* version, int32_t* timestamp) {
+      const Slice& key, uint32_t* version, int32_t* timestamp) {
   *version = *timestamp = 0;
 
   if (meta_prefix == kMetaPrefixKv) {
@@ -710,8 +710,8 @@ Status DBNemoImpl::SanityCheckVersionAndTS(const Slice& key,
     Status st = db_->Get(ReadOptions(), meta_key, &meta_value);
     if (st.ok()) {
       // Checks that Version is not older than key version
-      int32_t meta_version = DecodeFixed32(meta_value.data() + meta_value.size() - kTSLength - kVersionLength);
-      int32_t data_version = DecodeFixed32(val.data() + val.size() - kTSLength - kVersionLength);
+      uint32_t meta_version = DecodeFixed32(meta_value.data() + meta_value.size() - kTSLength - kVersionLength);
+      uint32_t data_version = DecodeFixed32(val.data() + val.size() - kTSLength - kVersionLength);
       if (data_version < meta_version) {
         return Status::NotFound("old version\n");
       }

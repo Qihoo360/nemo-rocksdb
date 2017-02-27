@@ -115,21 +115,21 @@ class DBNemoImpl : public DBNemo {
   virtual DB* GetBaseDB() override { return db_; }
 
   static void GetVersionAndTS(DB* db, char meta_prefix,
-         const Slice& key, int32_t* version, int32_t* timestamp);
+         const Slice& key, uint32_t* version, int32_t* timestamp);
 
   static Status SanityCheckTimestamp(const Slice& str, Env* env);
 
   static Status AppendVersionAndTS(const Slice& val, std::string* val_with_ver_ts,
-                                   Env* env, int32_t version, int32_t ttl);
+                                   Env* env, uint32_t version, int32_t ttl);
 
   static Status AppendVersionAndExpiredTime(const Slice& val, std::string* val_with_ver_ts,
-                                   Env* env, int32_t version, int32_t expire_time);
+                                   Env* env, uint32_t version, int32_t expire_time);
 
   Status SanityCheckVersionAndTS(const Slice& key, const Slice& val);
 
   static bool IsStale(int32_t timestamp, Env* env);
   
-  static Status ExtractVersionAndTS(const Slice& value, int32_t* version, int32_t *timestamp);
+  static Status ExtractVersionAndTS(const Slice& value, uint32_t* version, int32_t *timestamp);
 
   static void ExtractUserKey(char meta_prefix, const Slice& key, std::string* user_key);
 
@@ -139,7 +139,7 @@ class DBNemoImpl : public DBNemo {
 
 
   static const uint32_t kTSLength = sizeof(int32_t);  // size of timestamp
-  static const uint32_t kVersionLength = sizeof(int32_t);  // size of version
+  static const uint32_t kVersionLength = sizeof(uint32_t);  // size of version
  private:
   char meta_prefix_;
 };
@@ -241,12 +241,12 @@ class NemoIterator : public Iterator {
   DB* db_;
   char meta_prefix_;
   std::string user_key_;
-  int32_t version_;
+  uint32_t version_;
   int32_t timestamp_;
   
   bool IsAlive() {
 
-    int32_t ver;
+    uint32_t ver;
     int32_t ts;
 //    std::cout << "---Iterator------------------------------------------" << std::endl;
     Status s = DBNemoImpl::ExtractVersionAndTS(iter_->value(), &ver, &ts);
@@ -349,12 +349,12 @@ class NemoCompactionFilter : public CompactionFilter {
   DB* db_;
   char meta_prefix_;
   mutable std::string user_key_;
-  mutable int32_t version_;
+  mutable uint32_t version_;
   mutable int32_t timestamp_;
   std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory_;
   bool ShouldDrop(const Slice& key, const Slice& old_val) const {
 
-    int32_t ver;
+    uint32_t ver;
     int32_t ts;
 //    std::cout << "---Filter------------------------------------------" << std::endl;
     Status s = DBNemoImpl::ExtractVersionAndTS(old_val, &ver, &ts);
