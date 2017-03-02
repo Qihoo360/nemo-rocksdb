@@ -418,8 +418,19 @@ Status DBNemoImpl::WriteWithKeyVersion(const WriteOptions& opts, WriteBatch* upd
 
 //      std::cout << "WriteWithKeyVersionTTL, prefix: " << meta_prefix_ << " key: " << key.ToString() << " value: " << value.ToString() <<  " version: " << version << " timestamp: " << timestamp << std::endl;
 
+      int64_t curtime;
+      uint32_t new_version;
+      if (!env_->GetCurrentTime(&curtime).ok()) {
+        curtime = version;
+      }
+      new_version = curtime;
+      if (curtime <= version) {
+        new_version = version + 1;
+      }
+//      std::cout << "WriteWithKeyVersion, version: " << version << " curtime: " << curtime << " new_version: " << new_version << std::endl;
+
       Status st = AppendVersionAndTS(value, &value_with_ver_ts,
-                      env_, version + 1, 0);
+                      env_, new_version, 0);
       if (!st.ok()) {
         batch_rewrite_status = st;
       } else {
@@ -474,29 +485,45 @@ Status DBNemoImpl::WriteWithOldKeyTTL(const WriteOptions& opts, WriteBatch* upda
 
     explicit Handler(Env* env, DB* db, char meta_prefix)
         : db_(reinterpret_cast<DBImpl*>(db)), env_(env),
-          meta_prefix_(meta_prefix) {}
+          meta_prefix_(meta_prefix), version_(0),
+          timestamp_(0), is_first_(true) {
+            env_->GetCurrentTime(&now_);
+          }
 
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
       std::string value_with_ver_ts;
-      uint32_t version;
-      int32_t timestamp;
-      GetVersionAndTS(db_, meta_prefix_, key, &version, &timestamp);
+
+      if (is_first_) {
+//        std::cout << "is first, now: " << now_ << std::endl;
+        bool find_meta = GetVersionAndTS(db_, meta_prefix_, key, &version_, &timestamp_);
+        if (!find_meta) {
+//          std::cout <<  "Update version " << key.ToString() << ", meta not found, use now: " << now_ << std::endl;
+          version_ = now_;
+        }
+
+        int64_t curtime;
+        if (env_->GetCurrentTime(&curtime).ok()) {
+            if (timestamp_ != 0 && timestamp_ < curtime) {
+//                std::cout << "Meta expired, version++: ";
+                version_++;
+//                std::cout << version_ << std::endl;
+                timestamp_ = 0;
+            }
+        } else {
+            timestamp_ = 0;
+        }
+
+        is_first_ = false;
+      }
+//      std::cout << "Put key: " << key.ToString() << ", version_: " << version_ <<
+//        " timestamp_: " << timestamp_ << std::endl;
 //      if (key[0] == kMetaPrefixHash) {
 //        std::cout << "WriteWithOldKeyTTL --- 1-1, prefix: " << meta_prefix_ << " key: " << key.ToString() << " value: " << *((int64_t*)value.data()) <<  " version: " << version << " timestamp: " << timestamp << std::endl;
 //      } else {
 //        std::cout << "WriteWithOldKeyTTL --- 1-2, prefix: " << meta_prefix_ << " key: " << key.ToString() << " value: " << value.ToString() <<  " version: " << version << " timestamp: " << timestamp << std::endl;
 //      }
 
-      int64_t curtime;
-      if (env_->GetCurrentTime(&curtime).ok()) {
-          if (timestamp != 0 && timestamp < curtime) {
-              version++;
-              timestamp = 0;
-          }
-      } else {
-          timestamp = 0;
-      }
 //      if (key[0] == kMetaPrefixHash) {
 //        std::cout << "WriteWithOldKeyTTL --- 2, prefix: " << meta_prefix_ << " key: " << key.ToString() << " value: " << *((int64_t*)value.data()) <<  " version: " << version << " timestamp: " << timestamp << std::endl;
 //      } else {
@@ -505,7 +532,7 @@ Status DBNemoImpl::WriteWithOldKeyTTL(const WriteOptions& opts, WriteBatch* upda
 
 
       Status st = AppendVersionAndExpiredTime(value, &value_with_ver_ts,
-                      env_, version, timestamp);
+                      env_, version_, timestamp_);
       if (!st.ok()) {
         batch_rewrite_status = st;
       } else {
@@ -539,6 +566,10 @@ Status DBNemoImpl::WriteWithOldKeyTTL(const WriteOptions& opts, WriteBatch* upda
    private:
     Env* env_;
     char meta_prefix_;
+    int64_t now_;
+    uint32_t version_;
+    int32_t timestamp_;
+    bool is_first_;
   };
   //@ADD assign the db pointer
   Handler handler(GetEnv(), db_, meta_prefix_);
@@ -658,12 +689,12 @@ Status DBNemoImpl::AppendVersionAndExpiredTime(const Slice& val,
   return Status::OK(); 
 }
 
-void DBNemoImpl::GetVersionAndTS(DB* db, char meta_prefix,
+bool DBNemoImpl::GetVersionAndTS(DB* db, char meta_prefix,
       const Slice& key, uint32_t* version, int32_t* timestamp) {
   *version = *timestamp = 0;
 
   if (meta_prefix == kMetaPrefixKv) {
-    return;
+    return true;
   }
 
   std::string value;
@@ -676,7 +707,7 @@ void DBNemoImpl::GetVersionAndTS(DB* db, char meta_prefix,
     if (key.size() == 1) {
       // this is Seperator between meta and data, just ignore
       *version = *timestamp = 0;
-      return;
+      return true;
     }
 
     std::string meta_key(1, meta_prefix);
@@ -689,9 +720,10 @@ void DBNemoImpl::GetVersionAndTS(DB* db, char meta_prefix,
   if (s.ok()) {
     *version = DecodeFixed32(value.data() + value.size() - kVersionLength - kTSLength);
     *timestamp = DecodeFixed32(value.data() + value.size() - kTSLength);
+    return true;
   }
 
-  return; 
+  return false; 
 
 }
 
