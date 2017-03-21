@@ -27,7 +27,7 @@ all: $(ROCKSDB) $(LIBRARY)
 	@echo "Success, go, go, go..."
 
 $(ROCKSDB):
-	make -j 24 -C $(ROCKSDB_PATH) static_lib
+	make -C $(ROCKSDB_PATH) static_lib
 
 $(LIBRARY): $(OBJS)
 	rm -rf $(OUTPUT)
