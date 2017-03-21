@@ -1,4 +1,4 @@
-include ../rocksdb/make_config.mk
+include ../make_config.mk
 CXXFLAGS = $(PLATFORM_CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -Wall -W -Wno-unused-parameter -g -O2 -D__STDC_FORMAT_MACROS 
 
 SRC_DIR = .
