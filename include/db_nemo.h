@@ -39,6 +39,7 @@ class DBNemo: public StackableDB {
   virtual Status WriteWithKeyVersion(const WriteOptions& opts, WriteBatch* updates) = 0;
   virtual Status WriteWithOldKeyTTL(const WriteOptions& opts, WriteBatch* updates) = 0;
   virtual Status GetKeyTTL(const ReadOptions& options, const Slice& key, int32_t *ttl) = 0;
+  virtual void StopAllBackgroundWork(bool wait) = 0;
 
  protected:
   explicit DBNemo(DB* db) : StackableDB(db) {}

@@ -102,6 +102,9 @@ class DBNemoImpl : public DBNemo {
   virtual Iterator* NewIterator(const ReadOptions& opts,
                                 ColumnFamilyHandle* column_family) override;
 
+  using DBNemo::StopAllBackgroundWork;
+  virtual void StopAllBackgroundWork(bool wait) override;
+
   virtual DB* GetBaseDB() override { return db_; }
 
   static bool GetVersionAndTS(DB* db, char meta_prefix,

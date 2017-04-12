@@ -640,6 +640,10 @@ Iterator* DBNemoImpl::NewIterator(const ReadOptions& opts,
   return new NemoIterator(db_->NewIterator(opts, column_family), db_->GetEnv(), db_, meta_prefix_);
 }
 
+void DBNemoImpl::StopAllBackgroundWork(bool wait) {
+  CancelAllBackgroundWork(db_, wait);
+}
+
 Status DBNemoImpl::AppendVersionAndTS(const Slice& val, 
     std::string* val_with_ver_ts, Env* env, uint32_t version, int32_t ttl) {
 
