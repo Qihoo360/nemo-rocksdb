@@ -3,22 +3,12 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-
 #ifndef ROCKSDB_LITE
-#include <deque>
-#include <string>
-#include <vector>
-
-//#include <iostream>
 
 #include "db_nemo.h"
-
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/compaction_filter.h"
-#include "rocksdb/merge_operator.h"
-#include "rocksdb/utilities/utility_db.h"
 #include "db/db_impl.h"
+
+#include "rocksdb/merge_operator.h"
 
 #ifdef _WIN32
 // Windows API macro interference
