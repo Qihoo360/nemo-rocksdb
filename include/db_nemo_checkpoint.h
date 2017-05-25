@@ -7,7 +7,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <string>
 #include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"

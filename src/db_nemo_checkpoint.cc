@@ -16,15 +16,15 @@
 #endif
 
 #include <inttypes.h>
-#include <algorithm>
-#include <string>
-#include "db/filename.h"
-#include "db/wal_manager.h"
+
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
 #include "util/file_util.h"
-#include "util/sync_point.h"
-#include "port/port.h"
+
+#if (ROCKSDB_MAJOR < 5 || (ROCKSDB_MAJOR == 5 && ROCKSDB_MINOR < 3))
+#include "db/filename.h"
+#else
+#include "util/filename.h"
+#endif
 
 namespace rocksdb {
 
@@ -166,9 +166,15 @@ Status DBNemoCheckpointImpl::CreateCheckpointWithFiles(const std::string& checkp
     }
     if ((type != kTableFile) || (!same_fs)) {
       Log(db_->GetOptions().info_log, "Copying %s", src_fname.c_str());
+#if (ROCKSDB_MAJOR < 5 || (ROCKSDB_MAJOR == 5 && ROCKSDB_MINOR < 3))
       s = CopyFile(db_->GetEnv(), db_->GetName() + src_fname,
                    full_private_path + src_fname,
                    (type == kDescriptorFile) ? manifest_file_size : 0);
+#else
+      s = CopyFile(db_->GetEnv(), db_->GetName() + src_fname,
+                   full_private_path + src_fname,
+                   (type == kDescriptorFile) ? manifest_file_size : 0, false);
+#endif
     }
   }
   if (s.ok() && !current_fname.empty() && !manifest_fname.empty()) {
@@ -186,10 +192,17 @@ Status DBNemoCheckpointImpl::CreateCheckpointWithFiles(const std::string& checkp
       if (i + 1 == wal_size) {
         Log(db_->GetOptions().info_log, "Copying %s",
             live_wal_files[i]->PathName().c_str());
+#if (ROCKSDB_MAJOR < 5 || (ROCKSDB_MAJOR == 5 && ROCKSDB_MINOR < 3))
         s = CopyFile(db_->GetEnv(),
                      db_->GetOptions().wal_dir + live_wal_files[i]->PathName(),
                      full_private_path + live_wal_files[i]->PathName(),
                      live_wal_files[i]->SizeFileBytes());
+#else
+        s = CopyFile(db_->GetEnv(),
+                     db_->GetOptions().wal_dir + live_wal_files[i]->PathName(),
+                     full_private_path + live_wal_files[i]->PathName(),
+                     live_wal_files[i]->SizeFileBytes(), false);
+#endif
         break;
       }
       if (same_fs) {
@@ -207,9 +220,15 @@ Status DBNemoCheckpointImpl::CreateCheckpointWithFiles(const std::string& checkp
       if (!same_fs) {
         Log(db_->GetOptions().info_log, "Copying %s",
             live_wal_files[i]->PathName().c_str());
+#if (ROCKSDB_MAJOR < 5 || (ROCKSDB_MAJOR == 5 && ROCKSDB_MINOR < 3))
         s = CopyFile(db_->GetEnv(),
                      db_->GetOptions().wal_dir + live_wal_files[i]->PathName(),
                      full_private_path + live_wal_files[i]->PathName(), 0);
+#else
+        s = CopyFile(db_->GetEnv(),
+                     db_->GetOptions().wal_dir + live_wal_files[i]->PathName(),
+                     full_private_path + live_wal_files[i]->PathName(), 0, false);
+#endif
       }
     }
   }
