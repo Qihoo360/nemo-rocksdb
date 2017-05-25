@@ -5,17 +5,10 @@
 #pragma once
 
 #ifndef ROCKSDB_LITE
-#include <deque>
-#include <string>
-#include <vector>
 
 #include "db_nemo.h"
 
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/compaction_filter.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/utilities/utility_db.h"
 #include "db/db_impl.h"
 
 #ifdef _WIN32
