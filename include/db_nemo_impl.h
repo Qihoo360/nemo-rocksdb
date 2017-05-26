@@ -137,9 +137,6 @@ class DBNemoImpl : public DBNemo {
   char meta_prefix_;
 };
 
-static NemoCompactionFilter* g_compaction_filter = nullptr;
-static NemoCompactionFilterFactory* g_compaction_filter_factory = nullptr;
-
 class NemoIterator : public Iterator {
 
  public:

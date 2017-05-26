@@ -9,6 +9,9 @@
 
 namespace rocksdb {
 
+static NemoCompactionFilter* g_compaction_filter = nullptr;
+static NemoCompactionFilterFactory* g_compaction_filter_factory = nullptr;
+
 void DBNemoImpl::SanitizeOptions(ColumnFamilyOptions* options,
                                     Env* env, char meta_prefix) {
   if (options->compaction_filter) {
@@ -40,6 +43,12 @@ DBNemoImpl::~DBNemoImpl() {
 Status DBNemo::Open(Options& options, const std::string& dbname,
                        DBNemo** dbptr, char meta_prefix, bool read_only) {
 
+  bool manual_disable_auto_compaction = false;
+  if (options.disable_auto_compactions) {
+    manual_disable_auto_compaction = true;
+  }
+  options.disable_auto_compactions = true;
+
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -47,7 +56,8 @@ Status DBNemo::Open(Options& options, const std::string& dbname,
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DBNemo::Open(db_options, dbname, column_families, &handles,
-                             dbptr, meta_prefix, read_only);
+                             dbptr, meta_prefix, read_only,
+                             manual_disable_auto_compaction);
   if (s.ok()) {
     assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to
@@ -61,7 +71,8 @@ Status DBNemo::Open(
     DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DBNemo** dbptr,
-    char meta_prefix, bool read_only) {
+    char meta_prefix, bool read_only,
+    bool manual_disable_auto_compaction) {
 
   std::vector<ColumnFamilyDescriptor> column_families_sanitized =
       column_families;
@@ -86,6 +97,9 @@ Status DBNemo::Open(
     *dbptr = nullptr;
   }
   g_compaction_filter_factory->SetDBAndMP(db, meta_prefix);
+  if (st.ok() && !manual_disable_auto_compaction) {
+    db->EnableAutoCompaction(*handles);
+  }
   return st;
 }
 

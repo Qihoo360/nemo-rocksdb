@@ -22,7 +22,8 @@ class DBNemo: public StackableDB {
                      std::vector<ColumnFamilyHandle*>* handles,
                      DBNemo** dbptr,
                      char meta_prefix = '\0',
-                     bool read_only = false);
+                     bool read_only = false,
+                     bool manual_disable_auto_compaction = false);
 
   using StackableDB::Put;
   virtual Status Put(const WriteOptions& options, const Slice& key, const Slice& val, int32_t ttl) {
