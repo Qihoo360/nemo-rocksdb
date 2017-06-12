@@ -58,6 +58,9 @@ Status DBNemo::Open(Options& options, const std::string& dbname,
   Status s = DBNemo::Open(db_options, dbname, column_families, &handles,
                              dbptr, meta_prefix, read_only,
                              manual_disable_auto_compaction);
+  if (!manual_disable_auto_compaction) {
+    options.disable_auto_compactions = false;
+  }
   if (s.ok()) {
     assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to
