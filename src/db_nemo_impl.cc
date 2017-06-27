@@ -6,6 +6,7 @@
 #include "db_nemo_impl.h"
 
 #include "rocksdb/convenience.h"
+#include "db/write_batch_internal.h"
 
 namespace rocksdb {
 
@@ -276,12 +277,11 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
 Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t ttl) {
   class Handler : public WriteBatch::Handler {
    public:
-    DBImpl* db_;
     WriteBatch updates_ttl;
     Status batch_rewrite_status;
 
     explicit Handler(Env* env, int32_t ttl, DB* db, char meta_prefix)
-        : db_(reinterpret_cast<DBImpl*>(db)), env_(env), ttl_(ttl),
+        : env_(env), ttl_(ttl), db_(db),
           meta_prefix_(meta_prefix) {}
 
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
@@ -328,6 +328,7 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t 
    private:
     Env* env_;
     int32_t ttl_;
+    DB* db_;
     char meta_prefix_;
   };
   //@ADD assign the db pointer
@@ -344,13 +345,12 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t 
 Status DBNemoImpl::WriteWithExpiredTime(const WriteOptions& opts, WriteBatch* updates, int32_t expired_time) {
   class Handler : public WriteBatch::Handler {
    public:
-    DBImpl* db_;
     WriteBatch updates_ttl;
     Status batch_rewrite_status;
 
     explicit Handler(Env* env, DB* db, char meta_prefix, int32_t expired_time)
-        : db_(reinterpret_cast<DBImpl*>(db)), env_(env),
-          expired_time_(expired_time), meta_prefix_(meta_prefix) {}
+        : env_(env), db_(db),
+          meta_prefix_(meta_prefix), expired_time_(expired_time) {}
 
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
@@ -395,8 +395,9 @@ Status DBNemoImpl::WriteWithExpiredTime(const WriteOptions& opts, WriteBatch* up
 
    private:
     Env* env_;
-    int32_t expired_time_;
+    DB* db_;
     char meta_prefix_;
+    int32_t expired_time_;
   };
   //@ADD assign the db pointer
   Handler handler(GetEnv(), db_, meta_prefix_, expired_time);
@@ -412,12 +413,11 @@ Status DBNemoImpl::WriteWithExpiredTime(const WriteOptions& opts, WriteBatch* up
 Status DBNemoImpl::WriteWithKeyVersion(const WriteOptions& opts, WriteBatch* updates) {
   class Handler : public WriteBatch::Handler {
    public:
-    DBImpl* db_;
     WriteBatch updates_ttl;
     Status batch_rewrite_status;
 
     explicit Handler(Env* env, DB* db, char meta_prefix)
-        : db_(reinterpret_cast<DBImpl*>(db)), env_(env),
+        : env_(env), db_(db),
           meta_prefix_(meta_prefix) {}
 
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
@@ -474,6 +474,7 @@ Status DBNemoImpl::WriteWithKeyVersion(const WriteOptions& opts, WriteBatch* upd
 
    private:
     Env* env_;
+    DB* db_;
     char meta_prefix_;
   };
   //@ADD assign the db pointer
@@ -490,12 +491,11 @@ Status DBNemoImpl::WriteWithKeyVersion(const WriteOptions& opts, WriteBatch* upd
 Status DBNemoImpl::WriteWithOldKeyTTL(const WriteOptions& opts, WriteBatch* updates) {
   class Handler : public WriteBatch::Handler {
    public:
-    DBImpl* db_;
     WriteBatch updates_ttl;
     Status batch_rewrite_status;
 
     explicit Handler(Env* env, DB* db, char meta_prefix)
-        : db_(reinterpret_cast<DBImpl*>(db)), env_(env),
+        : env_(env), db_(db),
           meta_prefix_(meta_prefix), version_(0),
           timestamp_(0), is_first_(true) {
             env_->GetCurrentTime(&now_);
@@ -576,6 +576,7 @@ Status DBNemoImpl::WriteWithOldKeyTTL(const WriteOptions& opts, WriteBatch* upda
 
    private:
     Env* env_;
+    DB* db_;
     char meta_prefix_;
     int64_t now_;
     uint32_t version_;
