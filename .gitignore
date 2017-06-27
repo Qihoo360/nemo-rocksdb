@@ -28,7 +28,7 @@
 *.out
 *.app
 
+# Compiler result file
 make_config.mk
-rocksdb
-output
+output/
 tags
