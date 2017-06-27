@@ -7,7 +7,7 @@ dummy := $(shell (cd $(ROCKSDB_PATH); export ROCKSDB_ROOT="$(CURDIR)/rocksdb"; "
 include $(CURDIR)/make_config.mk
 CXXFLAGS = $(PLATFORM_CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -Wall -W -Wno-unused-parameter -g -O2 -D__STDC_FORMAT_MACROS 
 
-INCLUDE_PATH = -I./include \
+INCLUDE_PATH = -I./ \
 			   -I./rocksdb/ \
 			   -I./rocksdb/include
 

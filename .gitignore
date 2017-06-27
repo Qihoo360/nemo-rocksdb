@@ -27,3 +27,8 @@
 *.exe
 *.out
 *.app
+
+make_config.mk
+rocksdb
+tags
+output

@@ -6,10 +6,11 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db_nemo.h"
+#include "include/db_nemo.h"
 
 #include "rocksdb/merge_operator.h"
-#include "db/db_impl.h"
+#include "util/coding.h"
+#include "rocksdb/compaction_filter.h"
 
 #ifdef _WIN32
 // Windows API macro interference
