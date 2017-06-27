@@ -7,6 +7,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/stackable_db.h"
+#include "rocksdb/merge_operator.h"
 
 namespace rocksdb {
 

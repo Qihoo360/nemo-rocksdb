@@ -3,9 +3,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #ifndef ROCKSDB_LITE
 
-#include "db_nemo_impl.h"
+#include "src/db_nemo_impl.h"
 
 #include "rocksdb/convenience.h"
+#include "db/write_batch_internal.h"
 
 namespace rocksdb {
 
@@ -211,12 +212,11 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
 Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t ttl) {
   class Handler : public WriteBatch::Handler {
    public:
-    DBImpl* db_;
     WriteBatch updates_ttl;
     Status batch_rewrite_status;
 
-    explicit Handler(Env* env, int32_t ttl, DB* db)
-        : db_(reinterpret_cast<DBImpl*>(db)), env_(env), ttl_(ttl) {}
+    explicit Handler(Env* env, int32_t ttl)
+        : env_(env), ttl_(ttl) {}
 
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
@@ -257,7 +257,7 @@ Status DBNemoImpl::Write(const WriteOptions& opts, WriteBatch* updates, int32_t 
     int32_t ttl_;
   };
   //@ADD assign the db pointer
-  Handler handler(GetEnv(), ttl, db_);
+  Handler handler(GetEnv(), ttl);
 
   updates->Iterate(&handler);
   if (!handler.batch_rewrite_status.ok()) {

@@ -9,7 +9,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db_nemo_checkpoint.h"
+#include "include/db_nemo_checkpoint.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
