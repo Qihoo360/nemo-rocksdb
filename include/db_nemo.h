@@ -10,6 +10,12 @@
 
 namespace rocksdb {
 
+const char kMetaPrefixKv = '\0';
+const char kMetaPrefixHash = 'H';
+const char kMetaPrefixZset = 'Z';
+const char kMetaPrefixSet = 'S';
+const char kMetaPrefixList = 'L';
+
 class DBNemo: public StackableDB {
  public:
 
