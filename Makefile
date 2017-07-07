@@ -1,15 +1,17 @@
 SRC_DIR = $(CURDIR)/src
 OUTPUT = $(CURDIR)/output
 
-ROCKSDB_PATH = $(CURDIR)/rocksdb
+ifndef ROCKSDB_PATH
+ROCKSDB_PATH = $(realpath ./rocksdb)
+endif
 
-dummy := $(shell (cd $(ROCKSDB_PATH); export ROCKSDB_ROOT="$(CURDIR)/rocksdb"; "$(CURDIR)/rocksdb/build_tools/build_detect_platform" "$(CURDIR)/make_config.mk"))
+dummy := $(shell (cd $(ROCKSDB_PATH); export ROCKSDB_ROOT="$(ROCKSDB_PATH)"; "$(ROCKSDB_PATH)/build_tools/build_detect_platform" "$(CURDIR)/make_config.mk"))
 include $(CURDIR)/make_config.mk
 CXXFLAGS = $(PLATFORM_CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -Wall -W -Wno-unused-parameter -g -O2 -D__STDC_FORMAT_MACROS 
 
 INCLUDE_PATH = -I./include \
-			   -I./rocksdb/ \
-			   -I./rocksdb/include
+							 -I$(ROCKSDB_PATH) \
+							 -I$(ROCKSDB_PATH)/include
 
 LIBRARY = libnemodb.a
 ROCKSDB = $(ROCKSDB_PATH)/librocksdb.a
@@ -35,7 +37,7 @@ $(LIBRARY): $(OBJS)
 	mkdir -p $(OUTPUT)/lib
 	rm -rf $@
 	ar -rcs $@ $(OBJS)
-	cp $(ROCKSDB_PATH)/librocksdb.a $(OUTPUT)/lib
+	cp $(ROCKSDB) $(OUTPUT)/lib
 	cp -r ./include/* $(OUTPUT)/include
 
 $(OBJS): %.o : %.cc
