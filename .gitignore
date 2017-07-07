@@ -27,3 +27,8 @@
 *.exe
 *.out
 *.app
+
+# Compiler result file
+make_config.mk
+output/
+tags

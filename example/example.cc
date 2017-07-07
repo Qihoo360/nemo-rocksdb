@@ -1,4 +1,4 @@
-#include "db_nemo_impl.h"
+#include "db_nemo.h"
 #include "db_nemo_checkpoint.h"
 #include <iostream>
 #include <thread>
@@ -234,7 +234,6 @@ int main() {
   std::cout << "Switch to Checkpoint db" << std::endl;
 
   int times = 5;
-  int32_t ttl = 0;
   std::string value;
   while (times--) {
     s = tdb->Get(rocksdb::ReadOptions(), "key_1", &value);
