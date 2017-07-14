@@ -1,27 +1,23 @@
 include ../make_config.mk
-CXXFLAGS = $(PLATFORM_CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -Wall -W -Wno-unused-parameter -g -O2 -D__STDC_FORMAT_MACROS 
 
-SRC_DIR = .
-OUTPUT = .
+.PHONY: clean
 
-LIB_PATH = -L../output/lib
-LIBS = -lnemodb -lrocksdb $(PLATFORM_LDFLAGS)
+all: examples benchmark
 
-INCLUDE_PATH = -I../output/include/ \
-							 -I../rocksdb/ \
-							 -I../rocksdb/include/
+ifndef ROCKSDB_PATH
+  $(warning Warning: rocksdb path required, using defaut path)
+  ROCKSDB_PATH = ../rocksdb
+endif
 
-.PHONY: all clean
+LIBROCKSDB =$(ROCKSDB_PATH)/librocksdb.a
+LIBNEMODB =../lib/libnemodb.a
 
-all: example benchmark
-	@echo "Success, go, go, go..."
+examples: examples.cc $(LIBNEMODB) $(LIBROCKSDB)
+	$(CXX) $(CXXFLAGS) $^ -o$@ -I../ -I$(ROCKSDB_PATH) -I$(ROCKSDB_PATH)/include -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS)
 
-example: example.cc
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(INCLUDE_PATH) $(LIB_PATH) $(LIBS)
+benchmark: benchmark.cc $(LIBNEMODB) $(LIBROCKSDB)
+	$(CXX) $(CXXFLAGS) $^ -o$@  -I../ -I$(ROCKSDB_PATH) -I$(ROCKSDB_PATH)/include -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS)
 
-benchmark: benchmark.cc
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(INCLUDE_PATH) $(LIB_PATH) $(LIBS)
-
-clean: 
-	rm -rf ./*.o
+clean:
+	find . -name "*.[oda]" -exec rm -f {} \;
 	rm -rf ./example ./benchmark
