@@ -20,4 +20,4 @@ benchmark: benchmark.cc $(LIBNEMODB) $(LIBROCKSDB)
 
 clean:
 	find . -name "*.[oda]" -exec rm -f {} \;
-	rm -rf ./example ./benchmark
+	rm -rf ./examples ./benchmark
