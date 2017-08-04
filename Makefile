@@ -47,8 +47,12 @@ endif
 include ./src.mk
 
 ifndef ROCKSDB_PATH
-  $(warning Warning: rocksdb path required, using default path)
-  ROCKSDB_PATH = $(CURDIR)/rocksdb/
+$(info rocksdb path is not given, use default: ./rocksdb)
+$(info acquiring rocksdb from github, wait...)
+dummy := $(git submodule init; git submodule update)
+$(info acquire rocksdb from github, done)
+
+ROCKSDB_PATH = $(CURDIR)/rocksdb/
 endif
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
@@ -204,13 +208,18 @@ static_lib: $(LIBRARY)
 shared_lib: $(SHARED)
 	for f in $(notdir $(SHARED)); do mv "$$f" $(LIBOUTPUT); done
 
-example: $(EXAMPLES)
+LIBROCKSDB=$(ROCKSDB_PATH)/librocksdb.a
+
+example: $(LIBROCKSDB) $(EXAMPLES)
 
 examples: example/examples.o $(LIBOBJECTS)
 	$(AM_LINK)
 
 benchmark: example/benchmark.o $(LIBOBJECTS)
 	$(AM_LINK)
+
+$(LIBROCKSDB):
+	make -j 24 -C $(ROCKSDB_PATH) static_lib
 
 dbg: $(LIBRARY) $(EXAMPLES)
 
