@@ -53,6 +53,8 @@ dummy := $(git submodule init; git submodule update)
 $(info acquire rocksdb from github, done)
 
 ROCKSDB_PATH = $(CURDIR)/rocksdb/
+else
+$(info NOTICE: ROCKSDB_PATH should be absolute path)
 endif
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
@@ -211,7 +213,7 @@ shared_lib: $(SHARED)
 
 LIBROCKSDB=$(ROCKSDB_PATH)/librocksdb.a
 
-example: $(LIBROCKSDB) $(EXAMPLES)
+example: $(LIBROCKSDB) $(LIBRARY) $(EXAMPLES)
 
 examples: example/examples.o $(LIBOBJECTS)
 	$(AM_LINK)

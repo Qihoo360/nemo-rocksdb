@@ -30,5 +30,4 @@
 
 # Compiler result file
 make_config.mk
-output/
 tags
