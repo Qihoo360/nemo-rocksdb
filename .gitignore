@@ -32,3 +32,4 @@
 make_config.mk
 output/
 tags
+src/build_version.cc
