@@ -266,7 +266,11 @@ class NemoIterator : public Iterator {
 
     if (user_key != user_key_) {
       user_key_ = user_key;
-      DBNemoImpl::GetVersionAndTS(db_, meta_prefix_, iter_->key(), &version_, &timestamp_);
+      bool get_meta = DBNemoImpl::GetVersionAndTS(db_, meta_prefix_, iter_->key(), &version_, &timestamp_);
+      if (!get_meta) {
+//        std::cout << "Is Died " << iter_->key().ToString() << " get meta faild" << std::endl;
+        return false;
+      }
 //      std::cout << "Update Meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
     }
 
