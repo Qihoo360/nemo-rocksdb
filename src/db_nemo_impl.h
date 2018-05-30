@@ -138,6 +138,7 @@ class NemoIterator : public Iterator {
                         char meta_prefix)
     : iter_(iter), env_(env),
       db_(db), meta_prefix_(meta_prefix),
+      find_meta_(false),
       version_(0),
       timestamp_(0) { assert(iter_); }
 
@@ -224,6 +225,7 @@ class NemoIterator : public Iterator {
   Env* env_;
   DB* db_;
   char meta_prefix_;
+  bool find_meta_;
   std::string user_key_;
   uint32_t version_;
   int32_t timestamp_;
@@ -266,11 +268,11 @@ class NemoIterator : public Iterator {
 
     if (user_key != user_key_) {
       user_key_ = user_key;
-      DBNemoImpl::GetVersionAndTS(db_, meta_prefix_, iter_->key(), &version_, &timestamp_);
+      find_meta_ = DBNemoImpl::GetVersionAndTS(db_, meta_prefix_, iter_->key(), &version_, &timestamp_);
 //      std::cout << "Update Meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
     }
 
-    if (DBNemoImpl::IsStale(timestamp_, env_) || ver < version_) {
+    if (!find_meta_ || DBNemoImpl::IsStale(timestamp_, env_) || ver < version_) {
 //      std::cout << "Is Died " << iter_->key().ToString() << " ver: " << ver << " version: " << version_ << std::endl;
       return false;
     } else {
