@@ -270,7 +270,7 @@ class NemoIterator : public Iterator {
 //      std::cout << "Update Meta, meta_version: " << version_ << " meta_TS: " << timestamp_ << std::endl;
     }
 
-    if (DBNemoImpl::IsStale(timestamp_, env_) || ver < version_) {
+    if (version_ == 0 || DBNemoImpl::IsStale(timestamp_, env_) || ver < version_) {
 //      std::cout << "Is Died " << iter_->key().ToString() << " ver: " << ver << " version: " << version_ << std::endl;
       return false;
     } else {
