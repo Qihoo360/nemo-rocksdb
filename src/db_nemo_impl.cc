@@ -763,8 +763,10 @@ Status DBNemoImpl::SanityCheckVersionAndTS(const Slice& key,
       if (data_version < meta_version) {
         return Status::NotFound("old version\n");
       }
+      timestamp_value = DecodeFixed32(meta_value.data() + meta_value.size() - kTSLength);
+    } else {
+      return Status::NotFound("meta not found\n");
     }
-    timestamp_value = DecodeFixed32(meta_value.data() + meta_value.size() - kTSLength);
   }
 
   int64_t curtime;
